@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("lockhaven-backend")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+feecb2e5514137df0ab68549760413d531cbe078")]
 [assembly: System.Reflection.AssemblyProductAttribute("lockhaven-backend")]
 [assembly: System.Reflection.AssemblyTitleAttribute("lockhaven-backend")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
