@@ -1,0 +1,6 @@
+@lockhaven_backend_HostAddress = http://localhost:5155
+
+GET {{lockhaven_backend_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
