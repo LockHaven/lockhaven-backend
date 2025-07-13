@@ -40,8 +40,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddAuthorization();
-builder.Services.AddScoped<IJwtService, JwtService>();
-builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddSingleton<IJwtService, JwtService>();  // TODO: Add scoped once database is implemented
+builder.Services.AddSingleton<IAuthService, AuthService>();
 
 var app = builder.Build();
 

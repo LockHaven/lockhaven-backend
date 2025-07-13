@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using lockhaven_backend.Models;
 using lockhaven_backend.Models.Requests;
 using lockhaven_backend.Models.Responses;
@@ -91,18 +92,33 @@ public class AuthService : IAuthService
         });
     }
 
-    public Task<UserResponse> GetProfile()
+    public Task<UserResponse> GetProfile(ClaimsPrincipal user)
     {
-        // TODO: Get user from JWT token claims
-        // For now, return a placeholder
-        return Task.FromResult(new UserResponse
+        var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrEmpty(userId))
         {
-            Id = "placeholder",
-            FirstName = "Placeholder",
-            LastName = "User",
-            Email = "placeholder@example.com",
-            Role = Role.User,
-            CreatedAt = DateTime.UtcNow
-        });
+            throw new UnauthorizedAccessException("User not authenticated");
+        }
+
+        var userEntity = _users.FirstOrDefault(u => u.Id == userId);
+
+        if (userEntity == null)
+        {
+            throw new UnauthorizedAccessException("User not found");
+        }
+
+        return Task.FromResult(
+            new UserResponse
+            {
+                Id = userEntity.Id,
+                FirstName = userEntity.FirstName,
+                LastName = userEntity.LastName,
+                Email = userEntity.Email,
+                Role = userEntity.Role,
+                CreatedAt = userEntity.CreatedAt,
+                LastLogin = userEntity.LastLogin
+            }
+        );
     }
 }

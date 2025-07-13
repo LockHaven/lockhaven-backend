@@ -1,5 +1,6 @@
 using lockhaven_backend.Models.Requests;
 using lockhaven_backend.Services.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace lockhaven_backend.Controllers;
@@ -32,9 +33,17 @@ public class AuthController : ControllerBase
     }
 
     [HttpGet("profile")]
+    [Authorize]
     public async Task<IActionResult> GetProfile()
     {
-        var result = await _authService.GetProfile();
-        return Ok(result);
+        try 
+        {
+            var result = await _authService.GetProfile(User);
+            return Ok(result);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Unauthorized(new { message = ex.Message });
+        }
     }
 }
