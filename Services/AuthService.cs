@@ -1,30 +1,34 @@
 using System.Security.Claims;
+using lockhaven_backend.Data;
 using lockhaven_backend.Models;
 using lockhaven_backend.Models.Requests;
 using lockhaven_backend.Models.Responses;
 using lockhaven_backend.Services.Interfaces;
+using Microsoft.EntityFrameworkCore;
 
 namespace lockhaven_backend.Services;
 
 public class AuthService : IAuthService
 {
     private readonly IJwtService _jwtService;
+    private readonly ApplicationDbContext _dbContext;
     private readonly List<User> _users = new(); // TODO: Replace with database
 
-    public AuthService(IJwtService jwtService)
+    public AuthService(IJwtService jwtService, ApplicationDbContext dbContext)
     {
         _jwtService = jwtService;
+        _dbContext = dbContext;
     }
 
-    public Task<AuthResponse> Register(RegisterRequest request)
+    public async Task<AuthResponse> Register(RegisterRequest request)
     {
-        if (_users.Any(u => u.Email.Equals(request.Email, StringComparison.OrdinalIgnoreCase)))
+        if (await _dbContext.Users.AnyAsync(u => u.Email.ToLower() == request.Email.ToLower()))
         {
-            return Task.FromResult(new AuthResponse
+            return new AuthResponse
             {
                 Success = false,
                 Message = "User with this email already exists"
-            });
+            };
         }
 
         var user = new User
@@ -38,11 +42,12 @@ public class AuthService : IAuthService
             UpdatedAt = DateTime.UtcNow
         };
 
-        _users.Add(user);
+        _dbContext.Users.Add(user);
+        await _dbContext.SaveChangesAsync();
 
         var token = _jwtService.GenerateToken(user);
 
-        return Task.FromResult(new AuthResponse
+        return new AuthResponse
         {
             Success = true,
             Message = "User registered successfully",
@@ -57,24 +62,26 @@ public class AuthService : IAuthService
                 CreatedAt = user.CreatedAt,
                 LastLogin = user.LastLogin
             }
-        });
+        };
     }
 
-    public Task<AuthResponse> Login(LoginRequest request)
+    public async Task<AuthResponse> Login(LoginRequest request)
     {
-        var user = _users.FirstOrDefault(u => u.Email.Equals(request.Email, StringComparison.OrdinalIgnoreCase));
+        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == request.Email.ToLower());
 
         if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
         {
-            return Task.FromResult(new AuthResponse { Success = false, Message = "Invalid credentials" });
+            return new AuthResponse { Success = false, Message = "Invalid credentials" };
         }
 
         user.LastLogin = DateTime.UtcNow;
         user.UpdatedAt = DateTime.UtcNow;
 
+        await _dbContext.SaveChangesAsync();
+
         var token = _jwtService.GenerateToken(user);
 
-        return Task.FromResult(new AuthResponse 
+        return new AuthResponse 
         { 
             Success = true, 
             Message = "Login successful", 
@@ -89,10 +96,10 @@ public class AuthService : IAuthService
                 CreatedAt = user.CreatedAt, 
                 LastLogin = user.LastLogin                 
             } 
-        });
+        };
     }
 
-    public Task<UserResponse> GetProfile(ClaimsPrincipal user)
+    public async Task<UserResponse> GetProfile(ClaimsPrincipal user)
     {
         var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
@@ -101,24 +108,22 @@ public class AuthService : IAuthService
             throw new UnauthorizedAccessException("User not authenticated");
         }
 
-        var userEntity = _users.FirstOrDefault(u => u.Id == userId);
+        var userEntity = await _dbContext.Users.FindAsync(userId);
 
         if (userEntity == null)
         {
             throw new UnauthorizedAccessException("User not found");
         }
 
-        return Task.FromResult(
-            new UserResponse
-            {
-                Id = userEntity.Id,
-                FirstName = userEntity.FirstName,
-                LastName = userEntity.LastName,
-                Email = userEntity.Email,
-                Role = userEntity.Role,
-                CreatedAt = userEntity.CreatedAt,
-                LastLogin = userEntity.LastLogin
-            }
-        );
+        return new UserResponse
+        {
+            Id = userEntity.Id,
+            FirstName = userEntity.FirstName,
+            LastName = userEntity.LastName,
+            Email = userEntity.Email,
+            Role = userEntity.Role,
+            CreatedAt = userEntity.CreatedAt,
+            LastLogin = userEntity.LastLogin
+        };
     }
 }
