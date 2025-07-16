@@ -27,5 +27,6 @@ public enum FileType
     Json,
     Xml,
     
+    // Archives
     Zip
 }
