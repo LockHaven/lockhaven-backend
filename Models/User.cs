@@ -24,7 +24,9 @@ public class User
     public string PasswordHash { get; set; } = string.Empty;    
 
     [Required]
-    public Role Role { get; set; } = Role.User;    
+    public Role Role { get; set; } = Role.User;   
+
+    public virtual ICollection<File> Files { get; set; } = new List<File>();
 
     [Required]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
