@@ -28,10 +28,18 @@ public class File
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     [Required]
-    public string EncryptedKey { get; set; } = string.Empty;
+    public string EncryptedKey { get; set; } = string.Empty; // Will be empty for client-side encryption
 
     [Required]
-    public string InitializationVector { get; set; } = string.Empty;
+    public string InitializationVector { get; set; } = string.Empty; // Will be empty for client-side encryption
+
+    [Required]
+    public bool IsClientEncrypted { get; set; } = false; // Flag to indicate encryption method
+    
+    [Required]
+    public bool IsShared { get; set; } = false; // Flag to indicate if file is shared
+    
+    public string? GroupId { get; set; } // For group/shared files
 
     [Required]
     public string BlobPath { get; set; } = string.Empty;
