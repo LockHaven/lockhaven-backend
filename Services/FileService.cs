@@ -157,12 +157,20 @@ public class FileService : IFileService
         return AcceptedFileTypes.AllowedFileTypes.Contains(fileType);
     }
 
-    public byte[] GenerateEncryptionKey()
+    /// <summary>
+    /// Generates a cryptographically secure 256-bit encryption key for AES-256-GCM
+    /// </summary>
+    /// <returns>A 32-byte encryption key</returns>
+    public static byte[] GenerateEncryptionKey()
     {   
         return RandomNumberGenerator.GetBytes(32);
     }
 
-    public byte[] GenerateInitializationVector()
+    /// <summary>
+    /// Generates a cryptographically secure initialization vector for AES-256-GCM
+    /// </summary>
+    /// <returns>A 12-byte initialization vector</returns>
+    public static byte[] GenerateInitializationVector()
     {
         return RandomNumberGenerator.GetBytes(12);
     }
