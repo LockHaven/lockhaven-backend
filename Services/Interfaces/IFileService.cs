@@ -12,6 +12,4 @@ public interface IFileService
     Task<bool> UserOwnsFile(string fileId, string userId);
     Task<long> GetUserStorageUsed(string userId);
     bool IsFileTypeAllowed(string fileType);
-    byte[] GenerateEncryptionKey();
-    byte[] GenerateInitializationVector();
 }

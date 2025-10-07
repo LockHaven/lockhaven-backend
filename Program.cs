@@ -1,4 +1,5 @@
 using System.Text;
+using Azure.Storage.Blobs;
 using lockhaven_backend.Data;
 using lockhaven_backend.Services;
 using lockhaven_backend.Services.Interfaces;
@@ -43,6 +44,16 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+builder.Services.AddSingleton(sp => 
+{
+    var config = sp.GetRequiredService<IConfiguration>();
+    var cs = config["BlobStorage:ConnectionString"] 
+        ?? throw new InvalidOperationException("BlobStorage:ConnectionString is not configured");
+    return new BlobServiceClient(cs);
+});
+
+builder.Services.AddSingleton<IBlobStorageService, BlobStorageService>();
 
 builder.Services.AddAuthorization();
 builder.Services.AddSingleton<IJwtService, JwtService>();

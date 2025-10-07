@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using lockhaven_backend.Constants;
 using lockhaven_backend.Data;
+using lockhaven_backend.Models;
 using lockhaven_backend.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using File = lockhaven_backend.Models.File;
@@ -10,50 +11,104 @@ namespace lockhaven_backend.Services;
 public class FileService : IFileService
 {
     private readonly ApplicationDbContext _dbContext;
+    private readonly IBlobStorageService _blobStorageService;
 
-    public FileService(ApplicationDbContext dbContext)
+    public FileService(ApplicationDbContext dbContext, IBlobStorageService blobStorageService)
     {
         _dbContext = dbContext;
+        _blobStorageService = blobStorageService;
     }
 
     public async Task<File> UploadFile(Stream fileStream, string fileName, string contentType, long fileSize, string userId)
     {
         // ADD FILE SIZE LIMIT CHECK?
+        if (string.IsNullOrEmpty(fileName) || string.IsNullOrEmpty(userId))
+        {
+            throw new ArgumentNullException("fileName and userId cannot be null or empty");
+        }
 
-        // var file = new File
-        // {
-        //     // ... other properties
-        //     IsClientEncrypted = false, // Will be true for client-side encryption
-        // };
+        // Generate unique blob path
+        var fileExtension = Path.GetExtension(fileName);
+        var blobPath = $"users/{userId}/files/{Guid.NewGuid()}{fileExtension}";
 
-        // if (!file.IsClientEncrypted)
-        // {
-        //     // Server-side encryption (current approach)
-        //     var key = await GenerateEncryptionKey();
-        //     var iv = GenerateInitializationVector();
-        //     file.EncryptedKey = Convert.ToBase64String(key);
-        //     file.InitializationVector = Convert.ToBase64String(iv);
+        var file = new File
+        {
+            Name = fileName,
+            Type = GetFileTypeFromExtension(fileExtension),
+            Size = fileSize,
+            ContentType = contentType,
+            BlobPath = blobPath,
+            UserId = userId,
+            IsClientEncrypted = false, // Will be true for client-side encryption
+            IsShared = false,
+            GroupId = null
+        };
+
+        if (!file.IsClientEncrypted)
+        {
+            // Server-side encryption (current approach)
+            var key = GenerateEncryptionKey();
+            var iv = GenerateInitializationVector();
+            file.EncryptedKey = Convert.ToBase64String(key);
+            file.InitializationVector = Convert.ToBase64String(iv);
             
-        //     // Encrypt the file stream
-        //     fileStream = await EncryptStream(fileStream, key, iv);
-        // }
-        // else
-        // {
-        //     // Client-side encryption (future approach)
-        //     // File is already encrypted, just store it
-        //     file.EncryptedKey = string.Empty;
-        //     file.InitializationVector = string.Empty;
-        // }
+            // Encrypt the file stream
+            fileStream = await EncryptStream(fileStream, key, iv);
+        }
+        else
+        {
+            // Client-side encryption (future approach)
+            // File is already encrypted, just store it
+            file.EncryptedKey = string.Empty;
+            file.InitializationVector = string.Empty;
+        }
 
-        // // Store in blob storage
-        // await _blobService.UploadBlobAsync(file.BlobPath, fileStream);
+        // Store in blob storage
+        await _blobStorageService.UploadAsync(fileStream, blobPath, contentType);
         
-        // return file;
+        // Save to database
+        _dbContext.Files.Add(file);
+        await _dbContext.SaveChangesAsync();
+        
+        return file;
     }
 
     public async Task<Stream> DownloadFile(string fileId, string userId)
     {
-        throw new NotImplementedException();
+        if (string.IsNullOrEmpty(fileId) || string.IsNullOrEmpty(userId))
+        {
+            throw new ArgumentNullException("fileId and userId cannot be null or empty");
+        }
+
+        try
+        {
+            // Get file metadata and verify ownership
+            var file = await GetFileById(fileId, userId);
+            if (file == null)
+            {
+                throw new FileNotFoundException($"File with id {fileId} not found or access denied");
+            }
+
+            // Download from blob storage
+            var encryptedStream = await _blobStorageService.DownloadAsync(file.BlobPath);
+
+            if (!file.IsClientEncrypted)
+            {
+                // Server-side encryption - decrypt the stream
+                var key = Convert.FromBase64String(file.EncryptedKey);
+                var iv = Convert.FromBase64String(file.InitializationVector);
+                return await DecryptStream(encryptedStream, key, iv);
+            }
+            else
+            {
+                // Client-side encryption - return as-is (client will decrypt)
+                return encryptedStream;
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new Exception($"Error downloading file: {fileId}", ex);
+        }
     }
 
     public async Task<File?> GetFileById(string fileId, string userId)
@@ -95,7 +150,6 @@ public class FileService : IFileService
         }
     }
 
-    // TODO: Delete file from blob storage
     public async Task<bool> DeleteFile(string fileId, string userId)
     {
         if (string.IsNullOrEmpty(fileId) || string.IsNullOrEmpty(userId)) 
@@ -112,6 +166,8 @@ public class FileService : IFileService
             {
                 return false;
             }
+
+            await _blobStorageService.DeleteAsync(file.BlobPath);
 
             _dbContext.Files.Remove(file);
             await _dbContext.SaveChangesAsync();
@@ -144,7 +200,21 @@ public class FileService : IFileService
 
     public async Task<long> GetUserStorageUsed(string userId)
     {
-        throw new NotImplementedException();
+        if (string.IsNullOrEmpty(userId))
+        {
+            throw new ArgumentNullException("userId cannot be null or empty");
+        }
+
+        try
+        {
+            return await _dbContext.Files
+                .Where(f => f.UserId == userId)
+                .SumAsync(f => f.Size);
+        }
+        catch (Exception ex) 
+        {
+            throw new Exception($"Error getting user storage used: {userId}", ex);
+        }
     }
 
     public bool IsFileTypeAllowed(string fileType)
@@ -173,5 +243,53 @@ public class FileService : IFileService
     public static byte[] GenerateInitializationVector()
     {
         return RandomNumberGenerator.GetBytes(12);
+    }
+
+    /// <summary>
+    /// Determines FileType enum from file extension
+    /// </summary>
+    private static FileType GetFileTypeFromExtension(string extension)
+    {
+        return extension.ToLower() switch
+        {
+            ".pdf" => FileType.Pdf,
+            ".doc" => FileType.Doc,
+            ".docx" => FileType.Docx,
+            ".txt" => FileType.Txt,
+            ".xlsx" => FileType.Xlsx,
+            ".xls" => FileType.Xls,
+            ".csv" => FileType.Csv,
+            ".jpg" or ".jpeg" => FileType.Jpg,
+            ".png" => FileType.Png,
+            ".gif" => FileType.Gif,
+            ".bmp" => FileType.Bmp,
+            ".mp4" => FileType.Mp4,
+            ".mp3" => FileType.Mp3,
+            ".wav" => FileType.Wav,
+            ".json" => FileType.Json,
+            ".xml" => FileType.Xml,
+            ".zip" => FileType.Zip,
+            _ => FileType.Txt // Default fallback
+        };
+    }
+
+    /// <summary>
+    /// Encrypts a stream using AES-256-GCM
+    /// </summary>
+    private static Task<Stream> EncryptStream(Stream inputStream, byte[] key, byte[] iv)
+    {
+        // TODO: Implement AES-256-GCM encryption
+        // For now, return the original stream (placeholder)
+        return Task.FromResult(inputStream);
+    }
+
+    /// <summary>
+    /// Decrypts a stream using AES-256-GCM
+    /// </summary>
+    private static Task<Stream> DecryptStream(Stream encryptedStream, byte[] key, byte[] iv)
+    {
+        // TODO: Implement AES-256-GCM decryption
+        // For now, return the original stream (placeholder)
+        return Task.FromResult(encryptedStream);
     }
 }   
