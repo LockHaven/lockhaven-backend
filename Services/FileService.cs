@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Humanizer;
 using lockhaven_backend.Constants;
 using lockhaven_backend.Data;
 using lockhaven_backend.Models;
@@ -24,7 +25,7 @@ public class FileService : IFileService
         // ADD FILE SIZE LIMIT CHECK?
         if (string.IsNullOrEmpty(fileName) || string.IsNullOrEmpty(userId))
         {
-            throw new ArgumentNullException("fileName and userId cannot be null or empty");
+            throw new ArgumentNullException($"{nameof(fileName)} and {nameof(userId)} cannot be null or empty");
         }
 
         // Generate unique blob path
@@ -53,7 +54,7 @@ public class FileService : IFileService
             file.InitializationVector = Convert.ToBase64String(iv);
             
             // Encrypt the file stream
-            fileStream = await EncryptStream(fileStream, key, iv);
+            fileStream = EncryptStream(fileStream, key, iv);
         }
         else
         {
@@ -97,7 +98,7 @@ public class FileService : IFileService
                 // Server-side encryption - decrypt the stream
                 var key = Convert.FromBase64String(file.EncryptedKey);
                 var iv = Convert.FromBase64String(file.InitializationVector);
-                return await DecryptStream(encryptedStream, key, iv);
+                return DecryptStream(encryptedStream, key, iv);
             }
             else
             {
@@ -115,7 +116,7 @@ public class FileService : IFileService
     {
         if (string.IsNullOrEmpty(fileId) || string.IsNullOrEmpty(userId)) 
         {
-            throw new ArgumentNullException("fileId and userId cannot be null or empty");
+            throw new ArgumentNullException($"{nameof(fileId)} and {nameof(userId)} cannot be null or empty");
         }
 
         try 
@@ -135,7 +136,7 @@ public class FileService : IFileService
     {
         if (string.IsNullOrEmpty(userId)) 
         {
-            throw new ArgumentNullException("userId cannot be null or empty");
+            throw new ArgumentNullException($"{nameof(userId)} cannot be null or empty");
         }
 
         try 
@@ -154,7 +155,7 @@ public class FileService : IFileService
     {
         if (string.IsNullOrEmpty(fileId) || string.IsNullOrEmpty(userId)) 
         {
-            throw new ArgumentNullException("fileId and userId cannot be null or empty");
+            throw new ArgumentNullException($"{nameof(fileId)} and {nameof(userId)} cannot be null or empty");
         }
 
         try 
@@ -184,7 +185,7 @@ public class FileService : IFileService
     {
         if (string.IsNullOrEmpty(fileId) || string.IsNullOrEmpty(userId)) 
         {
-            throw new ArgumentNullException("fileId and userId cannot be null or empty");
+            throw new ArgumentNullException($"{nameof(fileId)} and {nameof(userId)} cannot be null or empty");
         }
 
         try 
@@ -202,7 +203,7 @@ public class FileService : IFileService
     {
         if (string.IsNullOrEmpty(userId))
         {
-            throw new ArgumentNullException("userId cannot be null or empty");
+            throw new ArgumentNullException($"{nameof(userId)} cannot be null or empty");
         }
 
         try
@@ -276,20 +277,57 @@ public class FileService : IFileService
     /// <summary>
     /// Encrypts a stream using AES-256-GCM
     /// </summary>
-    private static Task<Stream> EncryptStream(Stream inputStream, byte[] key, byte[] iv)
+    private static Stream EncryptStream(Stream inputStream, byte[] key, byte[] iv)
     {
-        // TODO: Implement AES-256-GCM encryption
-        // For now, return the original stream (placeholder)
-        return Task.FromResult(inputStream);
+        using var aesGcm = new AesGcm(key, EncryptionConstants.TagSize);
+        
+        // Read the entire input stream into memory
+        using var memoryStream = new MemoryStream();
+        inputStream.CopyTo(memoryStream);
+        var plaintext = memoryStream.ToArray();
+        
+        // Create arrays for ciphertext and tag
+        var ciphertext = new byte[plaintext.Length];
+        var tag = new byte[EncryptionConstants.TagSize];
+        
+        // Encrypt using the correct method signature
+        aesGcm.Encrypt(iv, plaintext, ciphertext, tag);
+        
+        // Combine ciphertext and tag into a single stream
+        var result = new MemoryStream();
+        result.Write(ciphertext, 0, ciphertext.Length);
+        result.Write(tag, 0, tag.Length);
+        result.Position = 0;
+        
+        return result;
     }
 
     /// <summary>
     /// Decrypts a stream using AES-256-GCM
     /// </summary>
-    private static Task<Stream> DecryptStream(Stream encryptedStream, byte[] key, byte[] iv)
+    private static Stream DecryptStream(Stream encryptedStream, byte[] key, byte[] iv)
     {
-        // TODO: Implement AES-256-GCM decryption
-        // For now, return the original stream (placeholder)
-        return Task.FromResult(encryptedStream);
+        using var aesGcm = new AesGcm(key, EncryptionConstants.TagSize);
+        
+        // Read the encrypted stream
+        using var memoryStream = new MemoryStream();
+        encryptedStream.CopyTo(memoryStream);
+        var encryptedData = memoryStream.ToArray();
+        
+        // Split ciphertext and tag
+        var tagSize = EncryptionConstants.TagSize;
+        var ciphertextLength = encryptedData.Length - tagSize;
+        
+        var ciphertext = new byte[ciphertextLength];
+        var tag = new byte[tagSize];
+        
+        Array.Copy(encryptedData, 0, ciphertext, 0, ciphertextLength);
+        Array.Copy(encryptedData, ciphertextLength, tag, 0, tagSize);
+        
+        // Decrypt
+        var plaintext = new byte[ciphertextLength];
+        aesGcm.Decrypt(iv, ciphertext, tag, plaintext);
+        
+        return new MemoryStream(plaintext);
     }
 }   
