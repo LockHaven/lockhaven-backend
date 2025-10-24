@@ -81,34 +81,23 @@ public class FileService : IFileService
             throw new ArgumentNullException("fileId and userId cannot be null or empty");
         }
 
-        try
+        // Get file metadata and verify ownership
+        var file = await GetFileById(fileId, userId) ?? throw new FileNotFoundException($"File with id {fileId} not found or access denied");
+
+        // Download from blob storage
+        var encryptedStream = await _blobStorageService.DownloadAsync(file.BlobPath);
+
+        if (!file.IsClientEncrypted)
         {
-            // Get file metadata and verify ownership
-            var file = await GetFileById(fileId, userId);
-            if (file == null)
-            {
-                throw new FileNotFoundException($"File with id {fileId} not found or access denied");
-            }
-
-            // Download from blob storage
-            var encryptedStream = await _blobStorageService.DownloadAsync(file.BlobPath);
-
-            if (!file.IsClientEncrypted)
-            {
-                // Server-side encryption - decrypt the stream
-                var key = Convert.FromBase64String(file.EncryptedKey);
-                var iv = Convert.FromBase64String(file.InitializationVector);
-                return DecryptStream(encryptedStream, key, iv);
-            }
-            else
-            {
-                // Client-side encryption - return as-is (client will decrypt)
-                return encryptedStream;
-            }
+            // Server-side encryption - decrypt the stream
+            var key = Convert.FromBase64String(file.EncryptedKey);
+            var iv = Convert.FromBase64String(file.InitializationVector);
+            return DecryptStream(encryptedStream, key, iv);
         }
-        catch (Exception ex)
+        else
         {
-            throw new Exception($"Error downloading file: {fileId}", ex);
+            // Client-side encryption - return as-is (client will decrypt)
+            return encryptedStream;
         }
     }
 
@@ -119,17 +108,10 @@ public class FileService : IFileService
             throw new ArgumentNullException($"{nameof(fileId)} and {nameof(userId)} cannot be null or empty");
         }
 
-        try 
-        {
-            var file = await _dbContext.Files
-                .FirstOrDefaultAsync(f => f.Id == fileId && f.UserId == userId);
+        var file = await _dbContext.Files
+            .FirstOrDefaultAsync(f => f.Id == fileId && f.UserId == userId) ?? throw new FileNotFoundException($"File with id {fileId} not found or access denied");
 
-            return file;
-        }
-        catch (Exception ex) 
-        {
-            throw new Exception($"Error getting file by id: {fileId}", ex);
-        }
+        return file;
     }
 
     public async Task<ICollection<File>> GetUserFiles(string userId)
@@ -139,46 +121,26 @@ public class FileService : IFileService
             throw new ArgumentNullException($"{nameof(userId)} cannot be null or empty");
         }
 
-        try 
-        {
-            var files = await _dbContext.Files.Where(f => f.UserId == userId).ToListAsync();
-
-            return files;
-        }
-        catch (Exception ex) 
-        {
-            throw new Exception($"Error getting user files: {userId}", ex);
-        }
+        return await _dbContext.Files.Where(f => f.UserId == userId).ToListAsync();
     }
 
     public async Task<bool> DeleteFile(string fileId, string userId)
     {
-        if (string.IsNullOrEmpty(fileId) || string.IsNullOrEmpty(userId)) 
+        if (string.IsNullOrEmpty(fileId) || string.IsNullOrEmpty(userId))
         {
             throw new ArgumentNullException($"{nameof(fileId)} and {nameof(userId)} cannot be null or empty");
         }
 
-        try 
-        {
-            var file = await _dbContext.Files
-                .FirstOrDefaultAsync(f => f.Id == fileId && f.UserId == userId);
+        var file = await _dbContext.Files
+            .FirstOrDefaultAsync(f => f.Id == fileId && f.UserId == userId) 
+            ?? throw new FileNotFoundException($"File with id {fileId} not found or access denied");
 
-            if (file == null) 
-            {
-                return false;
-            }
+        await _blobStorageService.DeleteAsync(file.BlobPath);
 
-            await _blobStorageService.DeleteAsync(file.BlobPath);
+        _dbContext.Files.Remove(file);
+        await _dbContext.SaveChangesAsync();
 
-            _dbContext.Files.Remove(file);
-            await _dbContext.SaveChangesAsync();
-
-            return true;
-        }
-        catch (Exception ex) 
-        {
-            throw new Exception($"Error deleting file: {fileId}", ex);
-        }
+        return true;
     }
 
     public async Task<bool> UserOwnsFile(string fileId, string userId)
@@ -188,15 +150,8 @@ public class FileService : IFileService
             throw new ArgumentNullException($"{nameof(fileId)} and {nameof(userId)} cannot be null or empty");
         }
 
-        try 
-        {
-            return await _dbContext.Files
-                .AnyAsync(f => f.Id == fileId && f.UserId == userId);
-        }
-        catch (Exception ex) 
-        {
-            throw new Exception($"Error checking if user owns file: {fileId}", ex);
-        }
+        return await _dbContext.Files
+            .AnyAsync(f => f.Id == fileId && f.UserId == userId);
     }
 
     public async Task<long> GetUserStorageUsed(string userId)
@@ -206,16 +161,9 @@ public class FileService : IFileService
             throw new ArgumentNullException($"{nameof(userId)} cannot be null or empty");
         }
 
-        try
-        {
-            return await _dbContext.Files
-                .Where(f => f.UserId == userId)
-                .SumAsync(f => f.Size);
-        }
-        catch (Exception ex) 
-        {
-            throw new Exception($"Error getting user storage used: {userId}", ex);
-        }
+        return await _dbContext.Files
+            .Where(f => f.UserId == userId)
+            .SumAsync(f => f.Size);
     }
 
     public bool IsFileTypeAllowed(string fileType)
@@ -232,7 +180,7 @@ public class FileService : IFileService
     /// Generates a cryptographically secure 256-bit encryption key for AES-256-GCM
     /// </summary>
     /// <returns>A 32-byte encryption key</returns>
-    public static byte[] GenerateEncryptionKey()
+    private byte[] GenerateEncryptionKey()
     {   
         return RandomNumberGenerator.GetBytes(32);
     }
@@ -241,7 +189,7 @@ public class FileService : IFileService
     /// Generates a cryptographically secure initialization vector for AES-256-GCM
     /// </summary>
     /// <returns>A 12-byte initialization vector</returns>
-    public static byte[] GenerateInitializationVector()
+    private byte[] GenerateInitializationVector()
     {
         return RandomNumberGenerator.GetBytes(12);
     }
@@ -249,7 +197,7 @@ public class FileService : IFileService
     /// <summary>
     /// Determines FileType enum from file extension
     /// </summary>
-    private static FileType GetFileTypeFromExtension(string extension)
+    private FileType GetFileTypeFromExtension(string extension)
     {
         return extension.ToLower() switch
         {
@@ -277,7 +225,7 @@ public class FileService : IFileService
     /// <summary>
     /// Encrypts a stream using AES-256-GCM
     /// </summary>
-    private static Stream EncryptStream(Stream inputStream, byte[] key, byte[] iv)
+    private Stream EncryptStream(Stream inputStream, byte[] key, byte[] iv)
     {
         using var aesGcm = new AesGcm(key, EncryptionConstants.TagSize);
         
@@ -305,7 +253,7 @@ public class FileService : IFileService
     /// <summary>
     /// Decrypts a stream using AES-256-GCM
     /// </summary>
-    private static Stream DecryptStream(Stream encryptedStream, byte[] key, byte[] iv)
+    private Stream DecryptStream(Stream encryptedStream, byte[] key, byte[] iv)
     {
         using var aesGcm = new AesGcm(key, EncryptionConstants.TagSize);
         
