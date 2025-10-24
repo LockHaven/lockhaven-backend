@@ -35,11 +35,7 @@ public class AuthService : IAuthService
 
         if (await _dbContext.Users.AnyAsync(u => u.Email.ToLower() == email))
         {
-            return new AuthResponse
-            {
-                Success = false,
-                Message = "User with this email already exists"
-            };
+            throw new ArgumentException("User with this email already exists");
         }
 
         var user = new User
@@ -81,11 +77,7 @@ public class AuthService : IAuthService
 
         if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
         {
-            return new AuthResponse 
-            { 
-                Success = false, 
-                Message = "Invalid credentials" 
-            };
+            throw new UnauthorizedAccessException("Invalid credentials");
         }
 
         user.LastLogin = DateTime.UtcNow;
