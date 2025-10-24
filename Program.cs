@@ -1,6 +1,7 @@
 using System.Text;
 using Azure.Storage.Blobs;
 using lockhaven_backend.Data;
+using lockhaven_backend.Middleware;
 using lockhaven_backend.Services;
 using lockhaven_backend.Services.Interfaces;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -72,6 +73,7 @@ app.UseCors("AllowFrontend");
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 app.MapControllers();
 
