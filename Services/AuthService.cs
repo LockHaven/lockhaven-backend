@@ -12,17 +12,28 @@ public class AuthService : IAuthService
 {
     private readonly IJwtService _jwtService;
     private readonly ApplicationDbContext _dbContext;
-    private readonly List<User> _users = new(); // TODO: Replace with database
 
-    public AuthService(IJwtService jwtService, ApplicationDbContext dbContext)
+    public AuthService(ApplicationDbContext dbContext, IJwtService jwtService)
     {
-        _jwtService = jwtService;
         _dbContext = dbContext;
+        _jwtService = jwtService;
     }
 
     public async Task<AuthResponse> Register(RegisterRequest request)
     {
-        if (await _dbContext.Users.AnyAsync(u => u.Email.ToLower() == request.Email.ToLower()))
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
+        {
+            throw new ArgumentException("Email and password are required");
+        }
+
+        var email = request.Email.Trim().ToLower();
+
+        if (await _dbContext.Users.AnyAsync(u => u.Email.ToLower() == email))
         {
             return new AuthResponse
             {
@@ -35,7 +46,7 @@ public class AuthService : IAuthService
         {
             FirstName = request.FirstName,
             LastName = request.LastName,
-            Email = request.Email,
+            Email = email,
             Role = Role.User,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
             CreatedAt = DateTime.UtcNow,
@@ -52,31 +63,33 @@ public class AuthService : IAuthService
             Success = true,
             Message = "User registered successfully",
             Token = token,
-            User = new UserResponse
-            {
-                Id = user.Id,
-                FirstName = user.FirstName,
-                LastName = user.LastName,
-                Email = user.Email,
-                Role = user.Role,
-                CreatedAt = user.CreatedAt,
-                LastLogin = user.LastLogin
-            }
+            User = ToUserResponse(user)
         };
     }
 
     public async Task<AuthResponse> Login(LoginRequest request)
     {
-        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == request.Email.ToLower());
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        var email = request.Email?.Trim().ToLower()
+            ?? throw new ArgumentException("Email is required");
+
+        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == email);
 
         if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
         {
-            return new AuthResponse { Success = false, Message = "Invalid credentials" };
+            return new AuthResponse 
+            { 
+                Success = false, 
+                Message = "Invalid credentials" 
+            };
         }
 
         user.LastLogin = DateTime.UtcNow;
         user.UpdatedAt = DateTime.UtcNow;
-
         await _dbContext.SaveChangesAsync();
 
         var token = _jwtService.GenerateToken(user);
@@ -86,44 +99,29 @@ public class AuthService : IAuthService
             Success = true, 
             Message = "Login successful", 
             Token = token, 
-            User = new UserResponse 
-            { 
-                Id = user.Id, 
-                FirstName = user.FirstName, 
-                LastName = user.LastName, 
-                Email = user.Email, 
-                Role = user.Role, 
-                CreatedAt = user.CreatedAt, 
-                LastLogin = user.LastLogin                 
-            } 
+            User = ToUserResponse(user)
         };
     }
 
     public async Task<UserResponse> GetProfile(ClaimsPrincipal user)
     {
-        var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? throw new UnauthorizedAccessException("User not authenticated");
 
-        if (string.IsNullOrEmpty(userId))
-        {
-            throw new UnauthorizedAccessException("User not authenticated");
-        }
+        var userEntity = await _dbContext.Users.FindAsync(userId)
+            ?? throw new UnauthorizedAccessException("User not found");
 
-        var userEntity = await _dbContext.Users.FindAsync(userId);
-
-        if (userEntity == null)
-        {
-            throw new UnauthorizedAccessException("User not found");
-        }
-
-        return new UserResponse
-        {
-            Id = userEntity.Id,
-            FirstName = userEntity.FirstName,
-            LastName = userEntity.LastName,
-            Email = userEntity.Email,
-            Role = userEntity.Role,
-            CreatedAt = userEntity.CreatedAt,
-            LastLogin = userEntity.LastLogin
-        };
+        return ToUserResponse(userEntity);
     }
+
+    private static UserResponse ToUserResponse(User user) => new()
+    {
+        Id = user.Id,
+        FirstName = user.FirstName,
+        LastName = user.LastName,
+        Email = user.Email,
+        Role = user.Role,
+        CreatedAt = user.CreatedAt,
+        LastLogin = user.LastLogin
+    };
 }
