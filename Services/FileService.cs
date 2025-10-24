@@ -143,17 +143,6 @@ public class FileService : IFileService
         return true;
     }
 
-    public async Task<bool> UserOwnsFile(string fileId, string userId)
-    {
-        if (string.IsNullOrEmpty(fileId) || string.IsNullOrEmpty(userId)) 
-        {
-            throw new ArgumentNullException($"{nameof(fileId)} and {nameof(userId)} cannot be null or empty");
-        }
-
-        return await _dbContext.Files
-            .AnyAsync(f => f.Id == fileId && f.UserId == userId);
-    }
-
     public async Task<long> GetUserStorageUsed(string userId)
     {
         if (string.IsNullOrEmpty(userId))
@@ -174,6 +163,17 @@ public class FileService : IFileService
         }
 
         return AcceptedFileTypes.AllowedFileTypes.Contains(fileType);
+    }
+
+    private async Task<bool> UserOwnsFile(string fileId, string userId)
+    {
+        if (string.IsNullOrEmpty(fileId) || string.IsNullOrEmpty(userId)) 
+        {
+            throw new ArgumentNullException($"{nameof(fileId)} and {nameof(userId)} cannot be null or empty");
+        }
+
+        return await _dbContext.Files
+            .AnyAsync(f => f.Id == fileId && f.UserId == userId);
     }
 
     /// <summary>
