@@ -38,7 +38,7 @@ public class AuthService : IAuthService
 
         var email = request.Email.Trim().ToLower();
 
-        if (await _dbContext.Users.AnyAsync(u => string.Equals(u.Email, email, StringComparison.OrdinalIgnoreCase)))
+        if (await _dbContext.Users.AnyAsync(u => u.Email == email))
         {
             throw new InvalidOperationException("User with this email already exists");
         }
@@ -78,8 +78,7 @@ public class AuthService : IAuthService
         var email = request.Email?.Trim().ToLower()
             ?? throw new ArgumentException("Email is required");
 
-        var user = await _dbContext.Users
-            .FirstOrDefaultAsync(u => string.Equals(u.Email, email, StringComparison.OrdinalIgnoreCase));
+        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == email);
 
         if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password.Trim(), user.PasswordHash))
         {
