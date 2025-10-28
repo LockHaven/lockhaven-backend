@@ -22,20 +22,23 @@ public class FileService : IFileService
 
     public async Task<File> UploadFile(Stream fileStream, string fileName, string contentType, long fileSize, string userId)
     {
-        // ADD FILE SIZE LIMIT CHECK?
         if (string.IsNullOrEmpty(fileName) || string.IsNullOrEmpty(userId))
         {
             throw new ArgumentNullException($"{nameof(fileName)} and {nameof(userId)} cannot be null or empty");
         }
 
-        // Generate unique blob path
-        var fileExtension = Path.GetExtension(fileName);
-        var blobPath = $"users/{userId}/files/{Guid.NewGuid()}{fileExtension}";
+        var extension = Path.GetExtension(fileName)?.TrimStart('.').ToLowerInvariant();
+        if (!IsAllowedFileType(extension))
+        {
+            throw new BadHttpRequestException($"Unsupported file type: {extension}");
+        }
+
+        var blobPath = $"users/{userId}/files/{Guid.NewGuid()}.{extension}";
 
         var file = new File
         {
             Name = fileName,
-            Type = GetFileTypeFromExtension(fileExtension),
+            Type = GetFileTypeFromExtension($".{extension}"),
             Size = fileSize,
             ContentType = contentType,
             BlobPath = blobPath,
@@ -256,26 +259,30 @@ public class FileService : IFileService
     private Stream DecryptStream(Stream encryptedStream, byte[] key, byte[] iv)
     {
         using var aesGcm = new AesGcm(key, EncryptionConstants.TagSize);
-        
+
         // Read the encrypted stream
         using var memoryStream = new MemoryStream();
         encryptedStream.CopyTo(memoryStream);
         var encryptedData = memoryStream.ToArray();
-        
+
         // Split ciphertext and tag
         var tagSize = EncryptionConstants.TagSize;
         var ciphertextLength = encryptedData.Length - tagSize;
-        
+
         var ciphertext = new byte[ciphertextLength];
         var tag = new byte[tagSize];
-        
+
         Array.Copy(encryptedData, 0, ciphertext, 0, ciphertextLength);
         Array.Copy(encryptedData, ciphertextLength, tag, 0, tagSize);
-        
+
         // Decrypt
         var plaintext = new byte[ciphertextLength];
         aesGcm.Decrypt(iv, ciphertext, tag, plaintext);
-        
+
         return new MemoryStream(plaintext);
     }
+    
+    private bool IsAllowedFileType(string extension)
+        => !string.IsNullOrEmpty(extension)
+            && AcceptedFileTypes.AllowedFileTypes.Contains(extension);
 }   
