@@ -26,25 +26,30 @@ public class AuthService : IAuthService
             throw new ArgumentNullException(nameof(request));
         }
 
-        if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
+        if (string.IsNullOrWhiteSpace(request.Email))
         {
-            throw new ArgumentException("Email and password are required");
+            throw new ArgumentException("Email is required", nameof(request.Email));
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Password))
+        {
+            throw new ArgumentException("Password is required", nameof(request.Password));
         }
 
         var email = request.Email.Trim().ToLower();
 
-        if (await _dbContext.Users.AnyAsync(u => u.Email.ToLower() == email))
+        if (await _dbContext.Users.AnyAsync(u => string.Equals(u.Email, email, StringComparison.OrdinalIgnoreCase)))
         {
-            throw new ArgumentException("User with this email already exists");
+            throw new InvalidOperationException("User with this email already exists");
         }
 
         var user = new User
         {
-            FirstName = request.FirstName,
-            LastName = request.LastName,
+            FirstName = request.FirstName.Trim(),
+            LastName = request.LastName.Trim(),
             Email = email,
             Role = Role.User,
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password.Trim()),
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -73,9 +78,10 @@ public class AuthService : IAuthService
         var email = request.Email?.Trim().ToLower()
             ?? throw new ArgumentException("Email is required");
 
-        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == email);
+        var user = await _dbContext.Users
+            .FirstOrDefaultAsync(u => string.Equals(u.Email, email, StringComparison.OrdinalIgnoreCase));
 
-        if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+        if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password.Trim(), user.PasswordHash))
         {
             throw new UnauthorizedAccessException("Invalid credentials");
         }

@@ -40,11 +40,11 @@ public class ExceptionHandlingMiddleware
 
         switch (ex)
         {
-            case UnauthorizedAccessException:
-                problem.Status = (int)HttpStatusCode.Unauthorized;
-                problem.Title = "Unauthorized";
+            case BadHttpRequestException:
+                problem.Status = (int)HttpStatusCode.BadRequest;
+                problem.Title = "Invalid request format";
                 problem.Detail = ex.Message;
-                problem.Type = "https://tools.ietf.org/html/rfc7235#section-3.1"; // 401
+                problem.Type = "https://tools.ietf.org/html/rfc7231#section-6.5.1"; // 400
                 break;
 
             case ArgumentException or ArgumentNullException:
@@ -54,6 +54,13 @@ public class ExceptionHandlingMiddleware
                 problem.Type = "https://tools.ietf.org/html/rfc7231#section-6.5.1"; // 400
                 break;
 
+            case UnauthorizedAccessException:
+                problem.Status = (int)HttpStatusCode.Unauthorized;
+                problem.Title = "Unauthorized";
+                problem.Detail = ex.Message;
+                problem.Type = "https://tools.ietf.org/html/rfc7235#section-3.1"; // 401
+                break;
+
             case FileNotFoundException:
                 problem.Status = (int)HttpStatusCode.NotFound;
                 problem.Title = "Resource not found";
@@ -61,17 +68,17 @@ public class ExceptionHandlingMiddleware
                 problem.Type = "https://tools.ietf.org/html/rfc7231#section-6.5.4"; // 404
                 break;
 
-            case IOException:
-                problem.Status = (int)HttpStatusCode.ServiceUnavailable;
-                problem.Title = "Storage unavailable";
-                problem.Detail = "A storage error occurred. Please try again.";
-                problem.Type = "https://tools.ietf.org/html/rfc7231#section-6.6.4"; // 503
-                break;
-
             case DbUpdateConcurrencyException:
                 problem.Status = (int)HttpStatusCode.Conflict;
                 problem.Title = "Concurrency conflict";
                 problem.Detail = "The resource was modified by another operation.";
+                problem.Type = "https://tools.ietf.org/html/rfc7231#section-6.5.8"; // 409
+                break;
+
+            case InvalidOperationException:
+                problem.Status = (int)HttpStatusCode.Conflict;
+                problem.Title = "User conflict";
+                problem.Detail = ex.Message;
                 problem.Type = "https://tools.ietf.org/html/rfc7231#section-6.5.8"; // 409
                 break;
 
@@ -89,6 +96,13 @@ public class ExceptionHandlingMiddleware
                 problem.Type = "https://tools.ietf.org/html/rfc7231#section-6.6.1"; // 500
                 break;
 
+            case IOException:
+                problem.Status = (int)HttpStatusCode.ServiceUnavailable;
+                problem.Title = "Storage unavailable";
+                problem.Detail = "A storage error occurred. Please try again.";
+                problem.Type = "https://tools.ietf.org/html/rfc7231#section-6.6.4"; // 503
+                break;
+
             default:
                 logger.LogError(ex, "Unhandled exception occurred: {Message}", ex.Message);
                 break;
@@ -96,6 +110,7 @@ public class ExceptionHandlingMiddleware
 
         logger.LogError(ex, "Exception handled by middleware: {Message}", ex.Message);
 
+        problem.Extensions["traceId"] = context.TraceIdentifier;
         context.Response.StatusCode = problem.Status ?? 500;
         context.Response.ContentType = "application/problem+json";
         await context.Response.WriteAsJsonAsync(problem);

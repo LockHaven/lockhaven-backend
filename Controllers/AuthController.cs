@@ -17,7 +17,8 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("register")]
-    public async Task<IActionResult> Register([FromBody] RegisterRequest request)
+    [AllowAnonymous]
+    public async Task<IActionResult> Register(RegisterRequest request)
     {
         if (request == null) 
         {
@@ -30,7 +31,8 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("login")]
-    public async Task<IActionResult> Login([FromBody] LoginRequest request)
+    [AllowAnonymous]
+    public async Task<IActionResult> Login(LoginRequest request)
     {
         if (request == null) {
             throw new ArgumentNullException(nameof(request));
