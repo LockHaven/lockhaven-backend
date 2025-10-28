@@ -34,9 +34,18 @@ namespace lockhaven_backend.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("GroupId")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("InitializationVector")
                         .IsRequired()
                         .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsClientEncrypted")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsShared")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Name")
                         .IsRequired()
