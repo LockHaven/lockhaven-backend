@@ -1,5 +1,4 @@
 using System.Security.Cryptography;
-using Humanizer;
 using lockhaven_backend.Constants;
 using lockhaven_backend.Data;
 using lockhaven_backend.Models;

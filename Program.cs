@@ -1,19 +1,65 @@
 using System.Text;
 using Azure.Storage.Blobs;
 using lockhaven_backend.Data;
+using lockhaven_backend.Filters;
 using lockhaven_backend.Middleware;
 using lockhaven_backend.Services;
 using lockhaven_backend.Services.Interfaces;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddControllers();
-builder.Services.AddOpenApi();
+
+// Configure Swagger/OpenAPI
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "LockHaven API",
+        Version = "v1",
+        Description = "Secure file storage API with end-to-end encryption",
+        Contact = new OpenApiContact
+        {
+            Name = "LockHaven",
+            Url = new Uri("https://github.com/LockHaven/lockhaven-backend")
+        }
+    });
+
+    // Add JWT Authentication to Swagger
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "JWT Authorization header using the Bearer scheme. Enter 'Bearer' [space] and then your token in the text input below.",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.ApiKey,
+        Scheme = "Bearer",
+        BearerFormat = "JWT"
+    });
+
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+
+    // Configure file upload support
+    options.OperationFilter<FileUploadOperation>();
+});
 
 builder.Services.AddCors(options =>
 {
@@ -75,7 +121,14 @@ var app = builder.Build();
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+    app.UseSwagger();
+    app.UseSwaggerUI(options =>
+    {
+        options.SwaggerEndpoint("/swagger/v1/swagger.json", "LockHaven API v1");
+        options.RoutePrefix = string.Empty; // Makes Swagger UI available at the root (http://localhost:5155/)
+        options.DocumentTitle = "LockHaven API Documentation";
+        options.DefaultModelsExpandDepth(-1); // Hide schemas section by default
+    });
 }
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
