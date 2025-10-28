@@ -54,7 +54,16 @@ builder.Services.AddSingleton(sp =>
     return new BlobServiceClient(cs);
 });
 
-builder.Services.AddSingleton<IBlobStorageService, BlobStorageService>();
+// Use local file storage for development, Azure Blob Storage for production
+// NOTE: REMOVE THIS CONDITION ONCE AZURE BLOB STORAGE IS UP
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddScoped<IBlobStorageService, LocalFileStorageService>(); // NEED TO ADD THIS BACK IN OR SETUP BLOB IN AZURE
+}
+else
+{
+    builder.Services.AddSingleton<IBlobStorageService, BlobStorageService>();
+}
 
 builder.Services.AddAuthorization();
 builder.Services.AddSingleton<IJwtService, JwtService>();
@@ -69,17 +78,13 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+app.UseMiddleware<ExceptionHandlingMiddleware>();
+
 app.UseCors("AllowFrontend");
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
-app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 app.MapControllers();
-
-app.MapGet("/", () =>
-{
-    Console.WriteLine("Hello World");
-});
 
 app.Run();
