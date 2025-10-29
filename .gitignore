@@ -111,6 +111,4 @@ tmp/
 # LockHaven specific (custom)
 # ----------------------------------------
 # Local file storage service artifacts (remove once BlobStorage is live)
-storage/
-LocalFileStorage/
-localfiles/
+local-storage/
