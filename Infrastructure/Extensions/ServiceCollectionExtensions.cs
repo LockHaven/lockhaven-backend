@@ -5,6 +5,7 @@ using lockhaven_backend.Services;
 using lockhaven_backend.Services.Interfaces;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 
 namespace lockhaven_backend.Infrastructure.Extensions;
@@ -86,6 +87,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IJwtService, JwtService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IFileService, FileService>();
+
+        // Health Checks
+        services.AddHealthChecks()
+            .AddDbContextCheck<ApplicationDbContext>("Database", failureStatus: HealthStatus.Unhealthy);
 
         return services;
     }

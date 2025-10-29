@@ -1,4 +1,6 @@
+using lockhaven_backend.Infrastructure.Health;
 using lockhaven_backend.Middleware;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 
 namespace lockhaven_backend.Infrastructure.Extensions;
 
@@ -38,13 +40,28 @@ public static class ApplicationBuilderExtensions
     }
 
     /// <summary>
-    /// Maps controller endpoints for the LockHaven API.
+    /// Maps all controller and system endpoints, including health checks.
     /// </summary>
-    /// <param name="app">The <see cref="WebApplication"/> instance.</param>
-    /// <returns>The same <see cref="WebApplication"/> instance for chaining.</returns>
     public static WebApplication MapLockHavenEndpoints(this WebApplication app)
     {
         app.MapControllers();
+
+        app.MapHealthChecks("/health/live", new HealthCheckOptions
+        {
+            Predicate = _ => false
+        });
+
+        app.MapHealthChecks("/health/ready", new HealthCheckOptions
+        {
+            ResponseWriter = HealthCheckResponseWriter.WriteDetailedResponse
+        });
+
+        app.MapHealthChecks("/healthz", new HealthCheckOptions
+        {
+            ResponseWriter = HealthCheckResponseWriter.WriteDetailedResponse
+        });
+
         return app;
     }
+
 }
