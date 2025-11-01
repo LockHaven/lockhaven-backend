@@ -12,11 +12,13 @@ public class FileService : IFileService
 {
     private readonly ApplicationDbContext _dbContext;
     private readonly IBlobStorageService _blobStorageService;
+    private readonly IKeyEncryptionService _keyEncryptionService;
 
-    public FileService(ApplicationDbContext dbContext, IBlobStorageService blobStorageService)
+    public FileService(ApplicationDbContext dbContext, IBlobStorageService blobStorageService, IKeyEncryptionService keyEncryptionService)
     {
         _dbContext = dbContext;
         _blobStorageService = blobStorageService;
+        _keyEncryptionService = keyEncryptionService;
     }
 
     public async Task<File> UploadFile(Stream fileStream, string fileName, string contentType, long fileSize, string userId)
@@ -26,7 +28,7 @@ public class FileService : IFileService
             throw new ArgumentNullException($"{nameof(fileName)} and {nameof(userId)} cannot be null or empty");
         }
 
-        var extension = Path.GetExtension(fileName)?.TrimStart('.').ToLowerInvariant();
+        var extension = Path.GetExtension(fileName)?.TrimStart('.').ToLowerInvariant() ?? string.Empty;
         if (!IsAllowedFileType(extension))
         {
             throw new BadHttpRequestException($"Unsupported file type: {extension}");
@@ -49,13 +51,17 @@ public class FileService : IFileService
 
         if (!file.IsClientEncrypted)
         {
-            // Server-side encryption (current approach)
+            // Server-side encryption with envelope encryption
+            // Generate per-file data encryption key (DEK) and IV
             var key = GenerateEncryptionKey();
             var iv = GenerateInitializationVector();
-            file.EncryptedKey = Convert.ToBase64String(key);
-            file.InitializationVector = Convert.ToBase64String(iv);
             
-            // Encrypt the file stream
+            // Encrypt the DEK and IV with the Key Encryption Key (KEK) from Azure Key Vault
+            // This ensures that even if the database is compromised, attackers cannot decrypt files
+            file.EncryptedKey = await _keyEncryptionService.EncryptKeyAsync(key);
+            file.InitializationVector = await _keyEncryptionService.EncryptIvAsync(iv);
+            
+            // Encrypt the file stream with the DEK
             fileStream = EncryptStream(fileStream, key, iv);
         }
         else
@@ -91,9 +97,11 @@ public class FileService : IFileService
 
         if (!file.IsClientEncrypted)
         {
-            // Server-side encryption - decrypt the stream
-            var key = Convert.FromBase64String(file.EncryptedKey);
-            var iv = Convert.FromBase64String(file.InitializationVector);
+            // Server-side encryption - decrypt the DEK and IV using the KEK from Azure Key Vault
+            var key = await _keyEncryptionService.DecryptKeyAsync(file.EncryptedKey);
+            var iv = await _keyEncryptionService.DecryptIvAsync(file.InitializationVector);
+            
+            // Decrypt the file stream with the decrypted DEK
             return DecryptStream(encryptedStream, key, iv);
         }
         else

@@ -83,6 +83,12 @@ public static class ServiceCollectionExtensions
             services.AddSingleton<IBlobStorageService, BlobStorageService>();
         }
 
+        // Key Encryption Service (envelope encryption for file keys)
+        var keyVaultUrl = config["KeyVault:Url"]
+            ?? throw new InvalidOperationException("KeyVault:Url is not configured");
+        var keyName = config["KeyVault:KeyName"];
+        services.AddSingleton<IKeyEncryptionService>(sp => new KeyEncryptionService(keyVaultUrl, keyName));
+
         // Core business services
         services.AddSingleton<IJwtService, JwtService>();
         services.AddScoped<IAuthService, AuthService>();
