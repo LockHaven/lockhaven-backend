@@ -4,6 +4,7 @@ namespace lockhaven_backend.Models;
 
 public class User
 {
+    [Key]
     public string Id { get; set; } = Guid.NewGuid().ToString();
 
     [Required]
@@ -22,10 +23,15 @@ public class User
     [Required]
     public string PasswordHash { get; set; } = string.Empty;    
 
-    public Role Role { get; set; } = Role.User;    
+    [Required]
+    public Role Role { get; set; } = Role.User;   
 
+    public virtual ICollection<File> Files { get; set; } = new List<File>();
+
+    [Required]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    [Required]
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime? LastLogin { get; set; }    

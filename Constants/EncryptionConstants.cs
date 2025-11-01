@@ -1,0 +1,30 @@
+namespace lockhaven_backend.Constants;
+
+public static class EncryptionConstants
+{
+    /// <summary>
+    /// AES-256 key size in bytes (32 bytes = 256 bits)
+    /// </summary>
+    public const int EncryptionKeySize = 32;
+    
+    /// <summary>
+    /// GCM authentication tag size in bits (128 bits = 16 bytes)
+    /// </summary>
+    public const int TagSize = 16;
+    
+    /// <summary>
+    /// GCM nonce/IV size in bytes (12 bytes = 96 bits)
+    /// </summary>
+    public const int NonceSize = 12;
+    
+    /// <summary>
+    /// Chunk size for streaming encryption (1 MB)
+    /// </summary>
+    public const int ChunkSize = 1024 * 1024;
+    
+    /// <summary>
+    /// Encryption format versions
+    /// </summary>
+    public const int FormatVersionV1 = 1; // Single IV for entire file
+    public const int FormatVersionV2 = 2; // Chunked with per-chunk IVs
+}
