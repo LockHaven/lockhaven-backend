@@ -16,4 +16,15 @@ public static class EncryptionConstants
     /// GCM nonce/IV size in bytes (12 bytes = 96 bits)
     /// </summary>
     public const int NonceSize = 12;
+    
+    /// <summary>
+    /// Chunk size for streaming encryption (1 MB)
+    /// </summary>
+    public const int ChunkSize = 1024 * 1024;
+    
+    /// <summary>
+    /// Encryption format versions
+    /// </summary>
+    public const int FormatVersionV1 = 1; // Single IV for entire file
+    public const int FormatVersionV2 = 2; // Chunked with per-chunk IVs
 }

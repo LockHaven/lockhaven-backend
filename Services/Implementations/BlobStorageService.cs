@@ -40,10 +40,8 @@ public class BlobStorageService : IBlobStorageService
     public async Task<Stream> DownloadAsync(string blobPath, CancellationToken cancellationToken = default)
     {
         var blobClient = _container.GetBlobClient(blobPath);
-        var ms = new MemoryStream();
-        await blobClient.DownloadToAsync(ms, cancellationToken);
-        ms.Position = 0;
-        return ms;
+        var response = await blobClient.DownloadStreamingAsync(cancellationToken: cancellationToken);
+        return response.Value.Content;
     }
 
     public async Task<bool> DeleteAsync(string blobPath, CancellationToken cancellationToken = default)

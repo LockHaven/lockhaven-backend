@@ -61,8 +61,9 @@ public class FileService : IFileService
             file.EncryptedKey = await _keyEncryptionService.EncryptKeyAsync(key);
             file.InitializationVector = await _keyEncryptionService.EncryptIvAsync(iv);
             
-            // Encrypt the file stream with the DEK
-            fileStream = EncryptStream(fileStream, key, iv);
+            // Encrypt the file stream with the DEK using chunked format
+            file.EncryptionFormatVersion = EncryptionConstants.FormatVersionV2;
+            fileStream = EncryptStreamChunked(fileStream, key, iv);
         }
         else
         {
@@ -102,7 +103,16 @@ public class FileService : IFileService
             var iv = await _keyEncryptionService.DecryptIvAsync(file.InitializationVector);
             
             // Decrypt the file stream with the decrypted DEK
-            return DecryptStream(encryptedStream, key, iv);
+            // Handle backward compatibility with old format
+            if (file.EncryptionFormatVersion == EncryptionConstants.FormatVersionV2)
+            {
+                return DecryptStreamChunked(encryptedStream, key, iv);
+            }
+            else
+            {
+                // Legacy single-IV format
+                return DecryptStream(encryptedStream, key, iv);
+            }
         }
         else
         {
@@ -233,7 +243,95 @@ public class FileService : IFileService
     }
 
     /// <summary>
-    /// Encrypts a stream using AES-256-GCM
+    /// Encrypts a stream using chunked AES-256-GCM (Format V2)
+    /// Format: [IV(12)] [Chunk1: [ChunkIV(12)][Tag(16)][Data(N)]][Chunk2:...]
+    /// Base IV is stored in database, each chunk gets unique IV derived from base IV + counter
+    /// </summary>
+    private Stream EncryptStreamChunked(Stream inputStream, byte[] key, byte[] baseIv)
+    {
+        using var aesGcm = new AesGcm(key, EncryptionConstants.TagSize);
+        
+        var result = new MemoryStream();
+        var buffer = new byte[EncryptionConstants.ChunkSize];
+        var chunkIv = new byte[EncryptionConstants.NonceSize];
+        var chunkCounter = 0;
+        
+        int bytesRead;
+        while ((bytesRead = inputStream.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            // Derive unique IV for this chunk: base IV with counter appended to last 4 bytes
+            baseIv.CopyTo(chunkIv, 0);
+            var counterBytes = BitConverter.GetBytes(chunkCounter++);
+            Array.Copy(counterBytes, 0, chunkIv, EncryptionConstants.NonceSize - 4, 4);
+            
+            // Encrypt chunk
+            var ciphertext = new byte[bytesRead];
+            var tag = new byte[EncryptionConstants.TagSize];
+            aesGcm.Encrypt(chunkIv, buffer.AsSpan(0, bytesRead), ciphertext, tag);
+            
+            // Write chunk IV, tag, and ciphertext
+            result.Write(chunkIv, 0, chunkIv.Length);
+            result.Write(tag, 0, tag.Length);
+            result.Write(ciphertext, 0, ciphertext.Length);
+        }
+        
+        result.Position = 0;
+        return result;
+    }
+
+    /// <summary>
+    /// Decrypts a chunked AES-256-GCM stream (Format V2)
+    /// </summary>
+    private Stream DecryptStreamChunked(Stream encryptedStream, byte[] key, byte[] baseIv)
+    {
+        using var aesGcm = new AesGcm(key, EncryptionConstants.TagSize);
+        
+        var result = new MemoryStream();
+        var chunkIv = new byte[EncryptionConstants.NonceSize];
+        var tag = new byte[EncryptionConstants.TagSize];
+        var buffer = new byte[EncryptionConstants.ChunkSize];
+        var chunkCounter = 0;
+        
+        while (encryptedStream.Position < encryptedStream.Length)
+        {
+            // Read chunk IV
+            var ivRead = encryptedStream.Read(chunkIv, 0, chunkIv.Length);
+            if (ivRead != chunkIv.Length)
+            {
+                throw new CryptographicException("Invalid encrypted file format: truncated chunk IV");
+            }
+            
+            // Read chunk tag
+            var tagRead = encryptedStream.Read(tag, 0, tag.Length);
+            if (tagRead != tag.Length)
+            {
+                throw new CryptographicException("Invalid encrypted file format: truncated chunk tag");
+            }
+            
+            // Read chunk ciphertext
+            var ciphertextRead = encryptedStream.Read(buffer, 0, buffer.Length);
+            if (ciphertextRead == 0)
+            {
+                break;
+            }
+            
+            // Decrypt chunk
+            var plaintext = new byte[ciphertextRead];
+            aesGcm.Decrypt(chunkIv, buffer.AsSpan(0, ciphertextRead), tag, plaintext);
+            
+            // Write decrypted chunk
+            result.Write(plaintext, 0, plaintext.Length);
+            
+            chunkCounter++;
+        }
+        
+        result.Position = 0;
+        return result;
+    }
+
+    /// <summary>
+    /// Encrypts a stream using legacy single-IV AES-256-GCM (Format V1 - deprecated)
+    /// Kept for backward compatibility with existing files
     /// </summary>
     private Stream EncryptStream(Stream inputStream, byte[] key, byte[] iv)
     {
@@ -261,7 +359,8 @@ public class FileService : IFileService
     }
 
     /// <summary>
-    /// Decrypts a stream using AES-256-GCM
+    /// Decrypts a stream using legacy single-IV AES-256-GCM (Format V1 - deprecated)
+    /// Kept for backward compatibility with existing files
     /// </summary>
     private Stream DecryptStream(Stream encryptedStream, byte[] key, byte[] iv)
     {

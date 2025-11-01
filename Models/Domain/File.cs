@@ -34,6 +34,9 @@ public class File
     public string InitializationVector { get; set; } = string.Empty; // Will be empty for client-side encryption
 
     [Required]
+    public int EncryptionFormatVersion { get; set; } = 1; // Format version: 1 = single-IV, 2 = chunked
+
+    [Required]
     public bool IsClientEncrypted { get; set; } = false; // Flag to indicate encryption method
     
     [Required]
