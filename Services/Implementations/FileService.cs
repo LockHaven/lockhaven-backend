@@ -57,12 +57,10 @@ public class FileService : IFileService
             var iv = GenerateInitializationVector();
             
             // Encrypt the DEK and IV with the Key Encryption Key (KEK) from Azure Key Vault
-            // This ensures that even if the database is compromised, attackers cannot decrypt files
             file.EncryptedKey = await _keyEncryptionService.EncryptKeyAsync(key);
             file.InitializationVector = await _keyEncryptionService.EncryptIvAsync(iv);
             
             // Encrypt the file stream with the DEK using chunked format
-            file.EncryptionFormatVersion = EncryptionConstants.FormatVersionV2;
             fileStream = EncryptStreamChunked(fileStream, key, iv);
         }
         else
@@ -103,16 +101,7 @@ public class FileService : IFileService
             var iv = await _keyEncryptionService.DecryptIvAsync(file.InitializationVector);
             
             // Decrypt the file stream with the decrypted DEK
-            // Handle backward compatibility with old format
-            if (file.EncryptionFormatVersion == EncryptionConstants.FormatVersionV2)
-            {
-                return DecryptStreamChunked(encryptedStream, key, iv);
-            }
-            else
-            {
-                // Legacy single-IV format
-                return DecryptStream(encryptedStream, key, iv);
-            }
+            return DecryptStreamChunked(encryptedStream, key, iv);
         }
         else
         {
@@ -397,36 +386,6 @@ public class FileService : IFileService
         result.Position = 0;
         
         return result;
-    }
-
-    /// <summary>
-    /// Decrypts a stream using legacy single-IV AES-256-GCM (Format V1 - deprecated)
-    /// Kept for backward compatibility with existing files
-    /// </summary>
-    private Stream DecryptStream(Stream encryptedStream, byte[] key, byte[] iv)
-    {
-        using var aesGcm = new AesGcm(key, EncryptionConstants.TagSize);
-
-        // Read the encrypted stream
-        using var memoryStream = new MemoryStream();
-        encryptedStream.CopyTo(memoryStream);
-        var encryptedData = memoryStream.ToArray();
-
-        // Split ciphertext and tag
-        var tagSize = EncryptionConstants.TagSize;
-        var ciphertextLength = encryptedData.Length - tagSize;
-
-        var ciphertext = new byte[ciphertextLength];
-        var tag = new byte[tagSize];
-
-        Array.Copy(encryptedData, 0, ciphertext, 0, ciphertextLength);
-        Array.Copy(encryptedData, ciphertextLength, tag, 0, tagSize);
-
-        // Decrypt
-        var plaintext = new byte[ciphertextLength];
-        aesGcm.Decrypt(iv, ciphertext, tag, plaintext);
-
-        return new MemoryStream(plaintext);
     }
     
     private bool IsAllowedFileType(string extension)
