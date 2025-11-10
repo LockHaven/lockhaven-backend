@@ -94,7 +94,14 @@ public static class ServiceCollectionExtensions
             if (connectionString.Contains("Data Source=")) // SQLite fallback
                 options.UseSqlite(connectionString);
             else
-                options.UseSqlServer(connectionString);
+                options.UseSqlServer(connectionString, sqlOptions =>
+            {
+                sqlOptions.EnableRetryOnFailure(
+                    maxRetryCount: 5,
+                    maxRetryDelay: TimeSpan.FromSeconds(10),
+                    errorNumbersToAdd: null
+                );
+            });
         });
 
         // -------------------------------
