@@ -1,4 +1,6 @@
 using System.Text;
+using Azure.Identity;
+using Azure.Security.KeyVault.Secrets;
 using Azure.Storage.Blobs;
 using lockhaven_backend.Data;
 using lockhaven_backend.Services;
@@ -17,31 +19,52 @@ namespace lockhaven_backend.Infrastructure.Extensions;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers all LockHaven application services, including authentication,
-    /// authorization, database context, and storage services.
+    /// Registers all LockHaven application services, including Key Vault, authentication,
+    /// authorization, database, and blob storage connections.
     /// </summary>
-    /// <param name="services">The <see cref="IServiceCollection"/> to add services to.</param>
-    /// <param name="config">The application configuration.</param>
-    /// <param name="env">The hosting environment.</param>
-    /// <returns>The same <see cref="IServiceCollection"/> instance for chaining.</returns>
-    public static IServiceCollection AddLockHavenServices(this IServiceCollection services, IConfiguration config, IWebHostEnvironment env)
+    /// <param name="services">The DI container.</param>
+    /// <param name="config">Application configuration.</param>
+    /// <returns>The same service collection for chaining.</returns>
+    public static IServiceCollection AddLockHavenServices(this IServiceCollection services, IConfiguration config)
     {
-        // MVC Controllers
+        // -------------------------------
+        // Core ASP.NET setup
+        // -------------------------------
         services.AddControllers();
 
-        // CORS configuration
         services.AddCors(options =>
         {
             options.AddPolicy("AllowFrontend", policy =>
             {
-                policy.WithOrigins("http://localhost:3000")
+                policy.WithOrigins("http://localhost:3000") // Adjust if frontend moves to Azure
                     .AllowAnyHeader()
                     .AllowAnyMethod()
                     .AllowCredentials();
             });
         });
 
-        // JWT authentication setup
+        // -------------------------------
+        // Azure Key Vault
+        // -------------------------------
+        var vaultUri = config["KeyVault:VaultUri"]
+            ?? throw new InvalidOperationException("KeyVault:VaultUri is not configured.");
+
+        var secretClient = new SecretClient(new Uri(vaultUri), new DefaultAzureCredential());
+        services.AddSingleton(secretClient);
+
+        // -------------------------------
+        // JWT Authentication
+        // -------------------------------
+        var jwtKey = config["Jwt:Key"];
+        if (string.IsNullOrEmpty(jwtKey))
+        {
+            // Attempt to load from Key Vault if not provided
+            var secretName = config["Jwt:KeyVaultSecretName"]
+                ?? throw new InvalidOperationException("Jwt:KeyVaultSecretName is not configured.");
+            var keyVaultSecret = secretClient.GetSecret(secretName);
+            jwtKey = keyVaultSecret.Value.Value;
+        }
+
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(options =>
             {
@@ -53,48 +76,47 @@ public static class ServiceCollectionExtensions
                     ValidateIssuerSigningKey = true,
                     ValidIssuer = config["Jwt:Issuer"],
                     ValidAudience = config["Jwt:Audience"],
-                    IssuerSigningKey = new SymmetricSecurityKey(
-                        Encoding.UTF8.GetBytes(config["Jwt:Key"]
-                            ?? throw new InvalidOperationException("JWT Key is not configured"))
-                    )
+                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
                 };
             });
 
         services.AddAuthorization();
 
-        // Database (SQLite for local dev)
-        services.AddDbContext<ApplicationDbContext>(options =>
-            options.UseSqlite(config.GetConnectionString("DefaultConnection")));
+        // -------------------------------
+        // Database
+        // -------------------------------
+        var connectionString = config.GetConnectionString("DefaultConnection");
+        if (string.IsNullOrEmpty(connectionString))
+            throw new InvalidOperationException("Database connection string not configured.");
 
-        // Blob storage (switches automatically based on environment)
-        services.AddSingleton(sp =>
+        services.AddDbContext<ApplicationDbContext>(options =>
         {
-            var connectionString = config["BlobStorage:ConnectionString"]
-                ?? throw new InvalidOperationException("BlobStorage:ConnectionString is not configured");
-            return new BlobServiceClient(connectionString);
+            if (connectionString.Contains("Data Source=")) // SQLite fallback
+                options.UseSqlite(connectionString);
+            else
+                options.UseSqlServer(connectionString);
         });
 
-        if (env.IsDevelopment())
-        {
-            services.AddScoped<IBlobStorageService, LocalFileStorageService>();
-        }
-        else
-        {
-            services.AddSingleton<IBlobStorageService, BlobStorageService>();
-        }
+        // -------------------------------
+        // Azure Blob Storage
+        // -------------------------------
+        var blobConnection = config["BlobStorage:ConnectionString"]
+            ?? throw new InvalidOperationException("BlobStorage:ConnectionString is not configured.");
 
-        // Key Encryption Service (envelope encryption for file keys)
-        var keyVaultUrl = config["KeyVault:Url"]
-            ?? throw new InvalidOperationException("KeyVault:Url is not configured");
-        var keyName = config["KeyVault:KeyName"];
-        services.AddSingleton<IKeyEncryptionService>(sp => new KeyEncryptionService(keyVaultUrl, keyName));
+        services.AddSingleton(_ => new BlobServiceClient(blobConnection));
+        services.AddSingleton<IBlobStorageService, BlobStorageService>();
 
-        // Core business services
+        // -------------------------------
+        // Business Services
+        // -------------------------------
         services.AddSingleton<IJwtService, JwtService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IFileService, FileService>();
+        services.AddSingleton<IKeyEncryptionService>(sp => new KeyEncryptionService(vaultUri));
 
+        // -------------------------------
         // Health Checks
+        // -------------------------------
         services.AddHealthChecks()
             .AddDbContextCheck<ApplicationDbContext>("Database", failureStatus: HealthStatus.Unhealthy);
 
