@@ -11,20 +11,20 @@ public static class ApplicationBuilderExtensions
 {
     /// <summary>
     /// Configures global middleware used by the LockHaven API application,
-    /// including exception handling, HTTPS redirection, authentication, and CORS.
+    /// including exception handling, authentication, and CORS.
     /// </summary>
     /// <param name="app">The <see cref="IApplicationBuilder"/> instance.</param>
-    /// <param name="env">The current hosting environment.</param>
     /// <returns>The same <see cref="IApplicationBuilder"/> instance for chaining.</returns>
-    public static IApplicationBuilder UseLockHavenMiddleware(this IApplicationBuilder app, IHostEnvironment env)
+    public static IApplicationBuilder UseLockHavenMiddleware(this IApplicationBuilder app)
     {
+        var config = app.ApplicationServices.GetRequiredService<IConfiguration>();
+
         app.UseMiddleware<ExceptionHandlingMiddleware>();
         app.UseCors("AllowFrontend");
-        app.UseHttpsRedirection();
         app.UseAuthentication();
         app.UseAuthorization();
 
-        if (env.IsDevelopment())
+        if (config.GetValue<bool>("Features:EnableSwagger", false))
         {
             app.UseSwagger();
             app.UseSwaggerUI(options =>

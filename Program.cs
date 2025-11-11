@@ -11,7 +11,7 @@ builder.Services
 var app = builder.Build();
 
 // Configure
-app.UseLockHavenMiddleware(app.Environment);
+app.UseLockHavenMiddleware();
 app.MapLockHavenEndpoints();
 
 app.Run();
