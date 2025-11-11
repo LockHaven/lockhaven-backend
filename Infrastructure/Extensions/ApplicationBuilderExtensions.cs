@@ -46,16 +46,19 @@ public static class ApplicationBuilderExtensions
     {
         app.MapControllers();
 
+        // Liveness: lightweight process check
         app.MapHealthChecks("/health/live", new HealthCheckOptions
         {
             Predicate = _ => false
         });
 
+        // Readiness: verifies DB and dependencies
         app.MapHealthChecks("/health/ready", new HealthCheckOptions
         {
             ResponseWriter = HealthCheckResponseWriter.WriteDetailedResponse
         });
 
+        // Diagnostic alias for manual checking
         app.MapHealthChecks("/healthz", new HealthCheckOptions
         {
             ResponseWriter = HealthCheckResponseWriter.WriteDetailedResponse
