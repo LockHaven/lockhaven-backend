@@ -44,74 +44,68 @@ public static class ServiceCollectionExtensions
         });
 
         // -------------------------------
-        // Azure Key Vault
-        // -------------------------------
-        var vaultUri = config["KeyVault:VaultUri"]
-            ?? throw new InvalidOperationException("KeyVault:VaultUri is not configured.");
-
-        var secretClient = new SecretClient(new Uri(vaultUri), new DefaultAzureCredential());
-        services.AddSingleton(secretClient);
-
-        // -------------------------------
         // JWT Authentication
         // -------------------------------
-        var jwtKey = config["Jwt:Key"];
-        if (string.IsNullOrEmpty(jwtKey))
-        {
-            // Attempt to load from Key Vault if not provided
-            var secretName = config["Jwt:KeyVaultSecretName"]
-                ?? throw new InvalidOperationException("Jwt:KeyVaultSecretName is not configured.");
-            var keyVaultSecret = secretClient.GetSecret(secretName);
-            jwtKey = keyVaultSecret.Value.Value;
-        }
+        var jwtIssuer  = config["Jwt:Issuer"]  ?? throw new InvalidOperationException("Jwt:Issuer is not configured.");
+        var jwtAudience = config["Jwt:Audience"] ?? throw new InvalidOperationException("Jwt:Audience is not configured.");
+        var jwtKey     = config["Jwt:Key"];
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(options =>
             {
+                // If KeyVault-backed key is being used, JwtService will handle it;
+                // for token validation we still need a symmetric key here.
+                var signingKey = jwtKey is { Length: > 0 }
+                    ? new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+                    : throw new InvalidOperationException("Jwt:Key must be configured for token validation.");
+
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuer = true,
                     ValidateAudience = true,
                     ValidateLifetime = true,
                     ValidateIssuerSigningKey = true,
-                    ValidIssuer = config["Jwt:Issuer"],
-                    ValidAudience = config["Jwt:Audience"],
-                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+                    ValidIssuer = jwtIssuer,
+                    ValidAudience = jwtAudience,
+                    IssuerSigningKey = signingKey
                 };
             });
 
         services.AddAuthorization();
 
         // -------------------------------
-        // Database
+        // Database (Azure SQL)
         // -------------------------------
-        var connectionString = config.GetConnectionString("DefaultConnection");
-        if (string.IsNullOrEmpty(connectionString))
+        const string connectionName = "SqlServer";
+        var connectionString = config.GetConnectionString(connectionName);
+
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
             throw new InvalidOperationException("Database connection string not configured.");
+        }
 
         services.AddDbContext<ApplicationDbContext>(options =>
-        {
-            if (connectionString.Contains("Data Source=")) // SQLite fallback
-                options.UseSqlite(connectionString);
-            else
-                options.UseSqlServer(connectionString, sqlOptions =>
-            {
-                sqlOptions.EnableRetryOnFailure(
-                    maxRetryCount: 5,
-                    maxRetryDelay: TimeSpan.FromSeconds(10),
-                    errorNumbersToAdd: null
-                );
-            });
-        });
+            options.UseSqlServer(connectionString));
 
         // -------------------------------
         // Azure Blob Storage
         // -------------------------------
-        var blobConnection = config["BlobStorage:ConnectionString"]
-            ?? throw new InvalidOperationException("BlobStorage:ConnectionString is not configured.");
+        var blobConnectionString = config["BlobStorage:ConnectionString"]
+            ?? config["BlobStorage__ConnectionString"] // support App Settings style
+            ?? throw new InvalidOperationException("Blob storage connection string is not configured.");
 
-        services.AddSingleton(_ => new BlobServiceClient(blobConnection));
+        services.AddSingleton(_ => new BlobServiceClient(blobConnectionString));
+
         services.AddSingleton<IBlobStorageService, BlobStorageService>();
+
+        // -------------------------------
+        // Azure Key Vault & Key Encryption Service
+        // -------------------------------
+        var keyVaultUri = config["KeyVault:VaultUri"]
+            ?? throw new InvalidOperationException("KeyVault:VaultUri is not configured");
+
+        services.AddSingleton(_ => new SecretClient(new Uri(keyVaultUri), new DefaultAzureCredential()));
+        services.AddSingleton<IKeyEncryptionService>(_ => new KeyEncryptionService(keyVaultUri));
 
         // -------------------------------
         // Business Services
@@ -119,7 +113,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IJwtService, JwtService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IFileService, FileService>();
-        services.AddSingleton<IKeyEncryptionService>(sp => new KeyEncryptionService(vaultUri));
 
         // -------------------------------
         // Health Checks
