@@ -5,13 +5,13 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services
 builder.Services
-    .AddLockHavenServices(builder.Configuration, builder.Environment)
+    .AddLockHavenServices(builder.Configuration)
     .AddLockHavenSwagger();
 
 var app = builder.Build();
 
 // Configure
-app.UseLockHavenMiddleware(app.Environment);
+app.UseLockHavenMiddleware();
 app.MapLockHavenEndpoints();
 
 app.Run();

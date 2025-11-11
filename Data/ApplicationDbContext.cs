@@ -18,6 +18,8 @@ public class ApplicationDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
+        modelBuilder.HasDefaultSchema("dbo");
+
         modelBuilder.Entity<User>(entity =>
         {
             entity.HasKey(e => e.Id);
@@ -42,7 +44,6 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.UpdatedAt).IsRequired();
             entity.Property(e => e.EncryptedKey).IsRequired();
             entity.Property(e => e.InitializationVector).IsRequired();
-            entity.Property(e => e.EncryptionFormatVersion).IsRequired().HasDefaultValue(1);
             entity.Property(e => e.BlobPath).IsRequired();
             entity.Property(e => e.UserId).IsRequired();
             
