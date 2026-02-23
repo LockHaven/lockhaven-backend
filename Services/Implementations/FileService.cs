@@ -236,7 +236,7 @@ public class FileService : IFileService
             ".wav" => FileType.Wav,
             ".json" => FileType.Json,
             ".xml" => FileType.Xml,
-            ".zip" => FileType.Zip,
+            //".zip" => FileType.Zip, NOTE: Disabled due to security concerns for now
             _ => FileType.Txt // Default fallback
         };
     }
