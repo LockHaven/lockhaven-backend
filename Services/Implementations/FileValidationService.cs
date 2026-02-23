@@ -28,7 +28,7 @@ public class FileValidationService : IFileValidationService
         ["wav"] = new(StringComparer.OrdinalIgnoreCase) { "audio/wav", "audio/wave", "audio/x-wav" },
         ["json"] = new(StringComparer.OrdinalIgnoreCase) { "application/json", "text/json" },
         ["xml"] = new(StringComparer.OrdinalIgnoreCase) { "application/xml", "text/xml" },
-        ["zip"] = new(StringComparer.OrdinalIgnoreCase) { "application/zip", "application/x-zip-compressed", "multipart/x-zip" }
+        //["zip"] = new(StringComparer.OrdinalIgnoreCase) { "application/zip", "application/x-zip-compressed", "multipart/x-zip" } NOTE: Disabled due to security concerns for now
     };
 
     public FileValidationService(IConfiguration configuration)
