@@ -3,6 +3,7 @@ using lockhaven_backend.Constants;
 using lockhaven_backend.Data;
 using lockhaven_backend.Models;
 using lockhaven_backend.Services.Interfaces;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using File = lockhaven_backend.Models.File;
 
@@ -13,30 +14,39 @@ public class FileService : IFileService
     private readonly ApplicationDbContext _dbContext;
     private readonly IBlobStorageService _blobStorageService;
     private readonly IKeyEncryptionService _keyEncryptionService;
+    private readonly IFileValidationService _fileValidationService;
 
-    public FileService(ApplicationDbContext dbContext, IBlobStorageService blobStorageService, IKeyEncryptionService keyEncryptionService)
+    public FileService(
+        ApplicationDbContext dbContext,
+        IBlobStorageService blobStorageService,
+        IKeyEncryptionService keyEncryptionService,
+        IFileValidationService fileValidationService)
     {
         _dbContext = dbContext;
         _blobStorageService = blobStorageService;
         _keyEncryptionService = keyEncryptionService;
+        _fileValidationService = fileValidationService;
     }
 
-    public async Task<File> UploadFile(Stream fileStream, string fileName, string contentType, long fileSize, string userId)
+    public async Task<File> UploadFile(IFormFile file, string userId)
     {
-        if (string.IsNullOrEmpty(fileName) || string.IsNullOrEmpty(userId))
+        if (string.IsNullOrEmpty(userId))
         {
-            throw new ArgumentNullException($"{nameof(fileName)} and {nameof(userId)} cannot be null or empty");
+            throw new ArgumentNullException(nameof(userId));
         }
 
+        _fileValidationService.ValidateUpload(file);
+
+        var fileName = file.FileName;
+        var fileSize = file.Length;
+        var contentType = file.ContentType;
         var extension = Path.GetExtension(fileName)?.TrimStart('.').ToLowerInvariant() ?? string.Empty;
-        if (!IsAllowedFileType(extension))
-        {
-            throw new BadHttpRequestException($"Unsupported file type: {extension}");
-        }
 
         var blobPath = $"users/{userId}/files/{Guid.NewGuid()}.{extension}";
+        using var fileStream = file.OpenReadStream();
+        Stream uploadStream = fileStream;
 
-        var file = new File
+        var fileEntity = new File
         {
             Name = fileName,
             Type = GetFileTypeFromExtension($".{extension}"),
@@ -49,7 +59,7 @@ public class FileService : IFileService
             GroupId = null
         };
 
-        if (!file.IsClientEncrypted)
+        if (!fileEntity.IsClientEncrypted)
         {
             // Server-side encryption with envelope encryption
             // Generate per-file data encryption key (DEK) and IV
@@ -57,28 +67,38 @@ public class FileService : IFileService
             var iv = GenerateInitializationVector();
             
             // Encrypt the DEK and IV with the Key Encryption Key (KEK) from Azure Key Vault
-            file.EncryptedKey = await _keyEncryptionService.EncryptKeyAsync(key);
-            file.InitializationVector = await _keyEncryptionService.EncryptIvAsync(iv);
+            fileEntity.EncryptedKey = await _keyEncryptionService.EncryptKeyAsync(key);
+            fileEntity.InitializationVector = await _keyEncryptionService.EncryptIvAsync(iv);
             
             // Encrypt the file stream with the DEK using chunked format
-            fileStream = EncryptStreamChunked(fileStream, key, iv);
+            uploadStream = EncryptStreamChunked(fileStream, key, iv);
         }
         else
         {
             // Client-side encryption (future approach)
             // File is already encrypted, just store it
-            file.EncryptedKey = string.Empty;
-            file.InitializationVector = string.Empty;
+            fileEntity.EncryptedKey = string.Empty;
+            fileEntity.InitializationVector = string.Empty;
         }
 
-        // Store in blob storage
-        await _blobStorageService.UploadAsync(fileStream, blobPath, contentType);
+        try
+        {
+            // Store in blob storage
+            await _blobStorageService.UploadAsync(uploadStream, blobPath, contentType);
+        }
+        finally
+        {
+            if (!ReferenceEquals(uploadStream, fileStream))
+            {
+                uploadStream.Dispose();
+            }
+        }
         
         // Save to database
-        _dbContext.Files.Add(file);
+        _dbContext.Files.Add(fileEntity);
         await _dbContext.SaveChangesAsync();
         
-        return file;
+        return fileEntity;
     }
 
     public async Task<Stream> DownloadFile(string fileId, string userId)
@@ -162,16 +182,6 @@ public class FileService : IFileService
         return await _dbContext.Files
             .Where(f => f.UserId == userId)
             .SumAsync(f => f.Size);
-    }
-
-    public bool IsFileTypeAllowed(string fileType)
-    {
-        if (string.IsNullOrEmpty(fileType))
-        {
-            return false;
-        }
-
-        return AcceptedFileTypes.AllowedFileTypes.Contains(fileType);
     }
 
     private async Task<bool> UserOwnsFile(string fileId, string userId)
@@ -387,8 +397,4 @@ public class FileService : IFileService
         
         return result;
     }
-    
-    private bool IsAllowedFileType(string extension)
-        => !string.IsNullOrEmpty(extension)
-            && AcceptedFileTypes.AllowedFileTypes.Contains(extension);
 }   

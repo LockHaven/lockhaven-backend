@@ -113,6 +113,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IJwtService, JwtService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IFileService, FileService>();
+        services.AddScoped<IFileValidationService, FileValidationService>();
 
         // -------------------------------
         // Health Checks
