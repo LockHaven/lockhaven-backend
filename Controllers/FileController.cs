@@ -25,16 +25,11 @@ public class FileController : ControllerBase
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> UploadFile(IFormFile file)
     {
-        if (file == null || file.Length == 0)
+        if (file == null)
             throw new BadHttpRequestException("File is null or empty");
 
         var userId = GetUserId();
-        var result = await _fileService.UploadFile(
-            file.OpenReadStream(),
-            file.FileName,
-            file.ContentType,
-            file.Length,
-            userId);
+        var result = await _fileService.UploadFile(file, userId);
 
         return Ok(new
         {
@@ -52,7 +47,8 @@ public class FileController : ControllerBase
             throw new BadHttpRequestException("File ID is required");
 
         var userId = GetUserId();
-        var fileMetadata = await _fileService.GetFileById(fileId, userId);
+        var fileMetadata = await _fileService.GetFileById(fileId, userId)
+            ?? throw new FileNotFoundException($"File with id {fileId} not found");
         var fileStream = await _fileService.DownloadFile(fileId, userId);
 
         return File(fileStream, fileMetadata.ContentType, fileMetadata.Name);

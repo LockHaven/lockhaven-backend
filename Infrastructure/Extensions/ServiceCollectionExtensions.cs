@@ -17,84 +17,123 @@ namespace lockhaven_backend.Infrastructure.Extensions;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers all LockHaven application services, including authentication,
-    /// authorization, database context, and storage services.
+    /// Registers all LockHaven application services, including key management, authentication,
+    /// authorization, database, and blob storage connections.
     /// </summary>
-    /// <param name="services">The <see cref="IServiceCollection"/> to add services to.</param>
-    /// <param name="config">The application configuration.</param>
-    /// <param name="env">The hosting environment.</param>
-    /// <returns>The same <see cref="IServiceCollection"/> instance for chaining.</returns>
-    public static IServiceCollection AddLockHavenServices(this IServiceCollection services, IConfiguration config, IWebHostEnvironment env)
+    /// <param name="services">The DI container.</param>
+    /// <param name="config">Application configuration.</param>
+    /// <returns>The same service collection for chaining.</returns>
+    public static IServiceCollection AddLockHavenServices(this IServiceCollection services, IConfiguration config)
     {
-        // MVC Controllers
+        // -------------------------------
+        // Core ASP.NET setup
+        // -------------------------------
         services.AddControllers();
 
-        // CORS configuration
         services.AddCors(options =>
         {
             options.AddPolicy("AllowFrontend", policy =>
             {
-                policy.WithOrigins("http://localhost:3000")
+                policy.WithOrigins("http://localhost:3000") // Adjust if frontend moves to Azure
                     .AllowAnyHeader()
                     .AllowAnyMethod()
                     .AllowCredentials();
             });
         });
 
-        // JWT authentication setup
+        // -------------------------------
+        // JWT Authentication
+        // -------------------------------
+        var jwtIssuer  = config["Jwt:Issuer"]  ?? throw new InvalidOperationException("Jwt:Issuer is not configured.");
+        var jwtAudience = config["Jwt:Audience"] ?? throw new InvalidOperationException("Jwt:Audience is not configured.");
+        var jwtKey     = config["Jwt:Key"];
+
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(options =>
             {
+                // Token validation uses a symmetric key from configuration.
+                var signingKey = jwtKey is { Length: > 0 }
+                    ? new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+                    : throw new InvalidOperationException("Jwt:Key must be configured for token validation.");
+
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuer = true,
                     ValidateAudience = true,
                     ValidateLifetime = true,
                     ValidateIssuerSigningKey = true,
-                    ValidIssuer = config["Jwt:Issuer"],
-                    ValidAudience = config["Jwt:Audience"],
-                    IssuerSigningKey = new SymmetricSecurityKey(
-                        Encoding.UTF8.GetBytes(config["Jwt:Key"]
-                            ?? throw new InvalidOperationException("JWT Key is not configured"))
-                    )
+                    ValidIssuer = jwtIssuer,
+                    ValidAudience = jwtAudience,
+                    IssuerSigningKey = signingKey
                 };
             });
 
         services.AddAuthorization();
 
-        // Database (SQLite for local dev)
+        // -------------------------------
+        // Database (PostgreSQL)
+        // -------------------------------
+        const string connectionName = "Postgres";
+        var connectionString = config.GetConnectionString(connectionName);
+
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new InvalidOperationException("PostgreSQL connection string not configured.");
+        }
+
         services.AddDbContext<ApplicationDbContext>(options =>
-            options.UseSqlite(config.GetConnectionString("DefaultConnection")));
+            options.UseNpgsql(connectionString));
 
-        // Blob storage (switches automatically based on environment)
-        services.AddSingleton(sp =>
-        {
-            var connectionString = config["BlobStorage:ConnectionString"]
-                ?? throw new InvalidOperationException("BlobStorage:ConnectionString is not configured");
-            return new BlobServiceClient(connectionString);
-        });
+        // -------------------------------
+        // Blob Storage
+        // -------------------------------
+        var provider = config["Storage:Provider"];
 
-        if (env.IsDevelopment())
+        if (string.Equals(provider, "Local", StringComparison.OrdinalIgnoreCase))
         {
-            services.AddScoped<IBlobStorageService, LocalFileStorageService>();
+            services.AddSingleton<IBlobStorageService, LocalFileStorageService>();
         }
         else
         {
+            var blobConnectionString = config["BlobStorage:ConnectionString"]
+                ?? config["BlobStorage__ConnectionString"]
+                ?? throw new InvalidOperationException("Blob storage connection string is not configured.");
+
+            services.AddSingleton(_ => new BlobServiceClient(blobConnectionString));
             services.AddSingleton<IBlobStorageService, BlobStorageService>();
         }
 
-        // Key Encryption Service (envelope encryption for file keys)
-        var keyVaultUrl = config["KeyVault:Url"]
-            ?? throw new InvalidOperationException("KeyVault:Url is not configured");
-        var keyName = config["KeyVault:KeyName"];
-        services.AddSingleton<IKeyEncryptionService>(sp => new KeyEncryptionService(keyVaultUrl, keyName));
+        // -------------------------------
+        // Key Encryption
+        // -------------------------------
+        var keyProvider = config["KeyEncryption:Provider"] ?? "VaultTransit";
 
-        // Core business services
+        if (string.Equals(keyProvider, "VaultTransit", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddHttpClient("VaultTransit");
+            services.AddSingleton<IKeyEncryptionService>(serviceProvider =>
+            {
+                var httpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();
+                var httpClient = httpClientFactory.CreateClient("VaultTransit");
+                return new VaultTransitKeyEncryptionService(httpClient, config);
+            });
+        }
+        else
+        {
+            throw new InvalidOperationException($"Unsupported key encryption provider '{keyProvider}'.");
+        }
+
+        // -------------------------------
+        // Business Services
+        // -------------------------------
         services.AddSingleton<IJwtService, JwtService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IFileService, FileService>();
+        services.AddScoped<IFileValidationService, FileValidationService>();
 
+        // -------------------------------
         // Health Checks
+        // -------------------------------
         services.AddHealthChecks()
             .AddDbContextCheck<ApplicationDbContext>("Database", failureStatus: HealthStatus.Unhealthy);
 

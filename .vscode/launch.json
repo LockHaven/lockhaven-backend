@@ -12,7 +12,7 @@
       "stopAtEntry": false,
       "env": {
         "ASPNETCORE_ENVIRONMENT": "Development",
-        "ASPNETCORE_URLS": "http://localhost:5155;https://localhost:7011"
+        "ASPNETCORE_URLS": "https://localhost:7011"
       },
       "serverReadyAction": {
         "action": "openExternally",

@@ -42,7 +42,6 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.UpdatedAt).IsRequired();
             entity.Property(e => e.EncryptedKey).IsRequired();
             entity.Property(e => e.InitializationVector).IsRequired();
-            entity.Property(e => e.EncryptionFormatVersion).IsRequired().HasDefaultValue(1);
             entity.Property(e => e.BlobPath).IsRequired();
             entity.Property(e => e.UserId).IsRequired();
             

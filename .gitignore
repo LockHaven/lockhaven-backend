@@ -77,6 +77,7 @@ appsettings.Local.json
 # ----------------------------------------
 # Azure & Deployment Artifacts
 # ----------------------------------------
+publish/
 .publish/
 *.PublishSettings
 csx/
@@ -106,6 +107,13 @@ test.pdf
 logs/
 temp/
 tmp/
+*.zip
+*.dll
+*.pdb
+*.exe
+*.deps.json
+*.runtimeconfig.json
+*.staticwebassets.endpoints.json
 
 # ----------------------------------------
 # LockHaven specific (custom)
