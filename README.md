@@ -25,7 +25,7 @@ A secure ASP.NET Core Web API for authentication, encrypted file storage, and pr
 
 ### Prerequisites
 
-- .NET 9 SDK
+- .NET 10 SDK
 - ~~Azure SQL connection string~~
 - ~~Azure Blob Storage connection string (or Azurite for local development)~~
 - ~~Azure Key Vault access~~
