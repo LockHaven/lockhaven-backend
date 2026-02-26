@@ -51,7 +51,8 @@ dotnet restore
   - `BlobStorage:ConnectionString`
   - `BlobStorage:ContainerName`
   - `Jwt:Key`, `Jwt:Issuer`, `Jwt:Audience`
-  - `KeyVault:VaultUri`
+  - `KeyEncryption:Provider`
+  - `Vault:Address`, `Vault:TransitKeyName`, `Vault:Token`
   - `Features:EnableSwagger` (true/false)
 
 4. Apply database migrations:
@@ -79,7 +80,7 @@ lockhaven-backend/
 │   │   ├── AuthService.cs
 │   │   ├── FileService.cs
 │   │   ├── BlobStorageService.cs
-│   │   ├── KeyEncryptionService.cs
+│   │   ├── VaultTransitKeyEncryptionService.cs
 │   │   └── JwtService.cs
 │   └── Interfaces/
 ├── Data/
@@ -123,7 +124,7 @@ lockhaven-backend/
 - ✅ User and file domain models with EF Core migration
 - ✅ File upload/download/list/delete/storage APIs
 - ✅ Server-side AES-256-GCM chunked encryption
-- ✅ Envelope encryption with Azure Key Vault for DEK/IV protection
+- ✅ Envelope encryption with HashiCorp Vault Transit for DEK/IV protection
 - ✅ ~~Azure Blob + Azure SQL persistence pipeline~~ (NOTE: To be removed and migrated to DigitalOcean)
 - ✅ Global exception middleware with structured problem responses
 - ✅ Health endpoints for diagnostics/readiness/liveness
@@ -136,7 +137,7 @@ lockhaven-backend/
 ## 🔐 Security Features
 
 - **AES-256-GCM Encryption**: Files encrypted before storage using per-file data keys
-- **Envelope Encryption**: Data keys and IVs encrypted with an Azure Key Vault KEK
+- **Envelope Encryption**: Data keys and IVs encrypted with a Vault Transit KEK
 - **JWT Access Control**: Protected routes enforce authenticated user access
 - **Ownership Enforcement**: File queries and operations scoped to token user ID
 - **Password Security**: BCrypt hashing for stored user credentials
@@ -150,7 +151,7 @@ This backend is designed to run on:
 - Docker-compatible hosts
 - Any platform supporting .NET 9
 
-Make sure production environment variables are configured for SQL, Blob Storage, JWT, and Key Vault.
+Make sure production environment variables are configured for SQL, Blob Storage, JWT, and Vault Transit.
 
 ## 📝 License
 

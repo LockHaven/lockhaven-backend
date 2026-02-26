@@ -1,6 +1,4 @@
 using System.Text;
-using Azure.Identity;
-using Azure.Security.KeyVault.Secrets;
 using Azure.Storage.Blobs;
 using lockhaven_backend.Data;
 using lockhaven_backend.Services;
@@ -19,7 +17,7 @@ namespace lockhaven_backend.Infrastructure.Extensions;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers all LockHaven application services, including Key Vault, authentication,
+    /// Registers all LockHaven application services, including key management, authentication,
     /// authorization, database, and blob storage connections.
     /// </summary>
     /// <param name="services">The DI container.</param>
@@ -53,8 +51,7 @@ public static class ServiceCollectionExtensions
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(options =>
             {
-                // If KeyVault-backed key is being used, JwtService will handle it;
-                // for token validation we still need a symmetric key here.
+                // Token validation uses a symmetric key from configuration.
                 var signingKey = jwtKey is { Length: > 0 }
                     ? new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
                     : throw new InvalidOperationException("Jwt:Key must be configured for token validation.");
@@ -88,24 +85,43 @@ public static class ServiceCollectionExtensions
             options.UseSqlServer(connectionString));
 
         // -------------------------------
-        // Azure Blob Storage
+        // Blob Storage
         // -------------------------------
-        var blobConnectionString = config["BlobStorage:ConnectionString"]
-            ?? config["BlobStorage__ConnectionString"] // support App Settings style
-            ?? throw new InvalidOperationException("Blob storage connection string is not configured.");
+        var provider = config["Storage:Provider"];
 
-        services.AddSingleton(_ => new BlobServiceClient(blobConnectionString));
+        if (string.Equals(provider, "Local", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddSingleton<IBlobStorageService, LocalFileStorageService>();
+        }
+        else
+        {
+            var blobConnectionString = config["BlobStorage:ConnectionString"]
+                ?? config["BlobStorage__ConnectionString"]
+                ?? throw new InvalidOperationException("Blob storage connection string is not configured.");
 
-        services.AddSingleton<IBlobStorageService, BlobStorageService>();
+            services.AddSingleton(_ => new BlobServiceClient(blobConnectionString));
+            services.AddSingleton<IBlobStorageService, BlobStorageService>();
+        }
 
         // -------------------------------
-        // Azure Key Vault & Key Encryption Service
+        // Key Encryption
         // -------------------------------
-        var keyVaultUri = config["KeyVault:VaultUri"]
-            ?? throw new InvalidOperationException("KeyVault:VaultUri is not configured");
+        var keyProvider = config["KeyEncryption:Provider"] ?? "VaultTransit";
 
-        services.AddSingleton(_ => new SecretClient(new Uri(keyVaultUri), new DefaultAzureCredential()));
-        services.AddSingleton<IKeyEncryptionService>(_ => new KeyEncryptionService(keyVaultUri));
+        if (string.Equals(keyProvider, "VaultTransit", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddHttpClient("VaultTransit");
+            services.AddSingleton<IKeyEncryptionService>(serviceProvider =>
+            {
+                var httpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();
+                var httpClient = httpClientFactory.CreateClient("VaultTransit");
+                return new VaultTransitKeyEncryptionService(httpClient, config);
+            });
+        }
+        else
+        {
+            throw new InvalidOperationException($"Unsupported key encryption provider '{keyProvider}'.");
+        }
 
         // -------------------------------
         // Business Services
