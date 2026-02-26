@@ -13,7 +13,7 @@ A secure ASP.NET Core Web API for authentication, encrypted file storage, and pr
 
 ## 🛠️ Tech Stack
 
-- **Backend Framework**: ASP.NET Core Web API (.NET 9) (TODO: Upgrarde to .NET 10)
+- **Backend Framework**: ASP.NET Core Web API (.NET 10)
 - **Language**: C#
 - **Authentication**: JWT Bearer + BCrypt password hashing
 - **Database**: ~~Azure SQL via Entity Framework Core 9~~ (NOTE: Moving to DigitalOcean)
@@ -149,7 +149,7 @@ This backend is designed to run on:
 
 - Azure App Service / Azure Container Apps
 - Docker-compatible hosts
-- Any platform supporting .NET 9
+- Any platform supporting .NET 10
 
 Make sure production environment variables are configured for SQL, Blob Storage, JWT, and Vault Transit.
 
@@ -164,7 +164,3 @@ This project is licensed under the MIT License - see the `LICENSE` file for deta
 3. Commit your changes (`git commit -m 'Add some amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
-
----
-
-Built with ❤️ using ASP.NET Core, Azure, and C#
