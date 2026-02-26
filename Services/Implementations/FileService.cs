@@ -368,33 +368,4 @@ public class FileService : IFileService
         }
         return totalRead;
     }
-
-    /// <summary>
-    /// Encrypts a stream using legacy single-IV AES-256-GCM (Format V1 - deprecated)
-    /// Kept for backward compatibility with existing files
-    /// </summary>
-    private Stream EncryptStream(Stream inputStream, byte[] key, byte[] iv)
-    {
-        using var aesGcm = new AesGcm(key, EncryptionConstants.TagSize);
-        
-        // Read the entire input stream into memory
-        using var memoryStream = new MemoryStream();
-        inputStream.CopyTo(memoryStream);
-        var plaintext = memoryStream.ToArray();
-        
-        // Create arrays for ciphertext and tag
-        var ciphertext = new byte[plaintext.Length];
-        var tag = new byte[EncryptionConstants.TagSize];
-        
-        // Encrypt using the correct method signature
-        aesGcm.Encrypt(iv, plaintext, ciphertext, tag);
-        
-        // Combine ciphertext and tag into a single stream
-        var result = new MemoryStream();
-        result.Write(ciphertext, 0, ciphertext.Length);
-        result.Write(tag, 0, tag.Length);
-        result.Position = 0;
-        
-        return result;
-    }
 }   
