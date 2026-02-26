@@ -47,7 +47,7 @@ dotnet restore
 3. Configure development settings:
 
 - Update `appsettings.Development.json` (or environment variables) for:
-  - `ConnectionStrings:SqlServer`
+  - `ConnectionStrings:Postgres`
   - `BlobStorage:ConnectionString`
   - `BlobStorage:ContainerName`
   - `Jwt:Key`, `Jwt:Issuer`, `Jwt:Audience`

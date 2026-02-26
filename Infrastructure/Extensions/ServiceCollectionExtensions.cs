@@ -71,18 +71,18 @@ public static class ServiceCollectionExtensions
         services.AddAuthorization();
 
         // -------------------------------
-        // Database (Azure SQL)
+        // Database (PostgreSQL)
         // -------------------------------
-        const string connectionName = "SqlServer";
+        const string connectionName = "Postgres";
         var connectionString = config.GetConnectionString(connectionName);
 
         if (string.IsNullOrWhiteSpace(connectionString))
         {
-            throw new InvalidOperationException("Database connection string not configured.");
+            throw new InvalidOperationException("PostgreSQL connection string not configured.");
         }
 
         services.AddDbContext<ApplicationDbContext>(options =>
-            options.UseSqlServer(connectionString));
+            options.UseNpgsql(connectionString));
 
         // -------------------------------
         // Blob Storage

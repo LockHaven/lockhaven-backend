@@ -59,7 +59,7 @@ public class HealthController : ControllerBase
             {
                 reachable = canConnect,
                 provider = _dbContext.Database.ProviderName,
-                connectionString = _config.GetConnectionString("DefaultConnection") != null ? "Configured" : "Missing"
+                connectionString = _config.GetConnectionString("Postgres") != null ? "Configured" : "Missing"
             };
         }
         catch (Exception ex)

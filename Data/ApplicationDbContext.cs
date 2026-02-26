@@ -18,8 +18,6 @@ public class ApplicationDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
-        modelBuilder.HasDefaultSchema("dbo");
-
         modelBuilder.Entity<User>(entity =>
         {
             entity.HasKey(e => e.Id);
