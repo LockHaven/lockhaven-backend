@@ -47,7 +47,8 @@ public class FileController : ControllerBase
             throw new BadHttpRequestException("File ID is required");
 
         var userId = GetUserId();
-        var fileMetadata = await _fileService.GetFileById(fileId, userId);
+        var fileMetadata = await _fileService.GetFileById(fileId, userId)
+            ?? throw new FileNotFoundException($"File with id {fileId} not found");
         var fileStream = await _fileService.DownloadFile(fileId, userId);
 
         return File(fileStream, fileMetadata.ContentType, fileMetadata.Name);
