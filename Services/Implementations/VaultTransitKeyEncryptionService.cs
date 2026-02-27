@@ -19,9 +19,14 @@ public class VaultTransitKeyEncryptionService : IKeyEncryptionService
             ?? throw new InvalidOperationException("Vault:Address is not configured");
         _transitKeyName = configuration["Vault:TransitKeyName"]
             ?? throw new InvalidOperationException("Vault:TransitKeyName is not configured");
-        _vaultToken = configuration["Vault:Token"]
-            ?? Environment.GetEnvironmentVariable("VAULT_TOKEN")
-            ?? throw new InvalidOperationException("Vault token is not configured. Set Vault:Token or VAULT_TOKEN.");
+
+        var configuredToken = configuration["Vault:Token"];
+        var envToken = Environment.GetEnvironmentVariable("VAULT_TOKEN");
+        _vaultToken = !string.IsNullOrWhiteSpace(configuredToken)
+            ? configuredToken
+            : !string.IsNullOrWhiteSpace(envToken)
+                ? envToken
+                : throw new InvalidOperationException("Vault token is not configured. Set Vault:Token or VAULT_TOKEN.");
     }
 
     public async Task<string> EncryptKeyAsync(byte[] plaintextKey)
