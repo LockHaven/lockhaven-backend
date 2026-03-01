@@ -2,7 +2,7 @@ namespace lockhaven_backend.Constants;
 
 public static class AcceptedFileTypes
 {
-    public const long MaxUploadSizeBytes = 5 * 1024 * 1024;
+    public const long MaxUploadSizeBytes = 100 * 1024 * 1024; // 100MB
 
     public static readonly HashSet<string> AllowedFileTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase) 
     {
