@@ -37,7 +37,15 @@ public class User
 
     public DateTime? UploadsCountDateUtc { get; set; }
 
+    public int? CurrentSecretCount { get; set; }
+
+    public DateTime? SecretsUpdatedAtUtc { get; set; }
+
     public virtual ICollection<File> Files { get; set; } = new List<File>();
+    public virtual ICollection<Project> OwnedProjects { get; set; } = new List<Project>();
+    public virtual ICollection<ProjectMember> ProjectMemberships { get; set; } = new List<ProjectMember>();
+    public virtual ICollection<SecretVersion> CreatedSecretVersions { get; set; } = new List<SecretVersion>();
+    public virtual ICollection<SecretAuditEvent> SecretAuditEvents { get; set; } = new List<SecretAuditEvent>();
 
     [Required]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
