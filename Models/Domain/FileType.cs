@@ -28,5 +28,5 @@ public enum FileType
     Xml,
     
     // Archives
-    Zip
+    //Zip NOTE: Disabled due to security concerns for now
 }
