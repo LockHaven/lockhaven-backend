@@ -50,7 +50,7 @@ public class FileValidationService : IFileValidationService
 
         if (file.Length > AcceptedFileTypes.MaxUploadSizeBytes)
         {
-            throw new BadHttpRequestException("File exceeds maximum size limit of 5MB");
+            throw new BadHttpRequestException($"File exceeds maximum size limit of {AcceptedFileTypes.MaxUploadSizeBytes / 1024 / 1024} MB");
         }
 
         var extension = Path.GetExtension(file.FileName)?.TrimStart('.').ToLowerInvariant() ?? string.Empty;
