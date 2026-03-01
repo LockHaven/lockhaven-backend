@@ -6,14 +6,14 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.WebHost.ConfigureKestrel(serverOptions =>
 {
-    serverOptions.Limits.MaxRequestBodySize = 100 * 1024 * 1024; // 100 MB
+    serverOptions.Limits.MaxRequestBodySize = 250 * 1024 * 1024; // 250 MB
 });
 
 // Add services
 builder.Services
     .Configure<FormOptions>(options =>
     {
-        options.MultipartBodyLengthLimit = 100 * 1024 * 1024; // 100 MB
+        options.MultipartBodyLengthLimit = 250 * 1024 * 1024; // 250 MB
     })
     .AddLockHavenServices(builder.Configuration)
     .AddLockHavenSwagger();

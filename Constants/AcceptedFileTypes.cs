@@ -2,7 +2,8 @@ namespace lockhaven_backend.Constants;
 
 public static class AcceptedFileTypes
 {
-    public const long MaxUploadSizeBytes = 100 * 1024 * 1024; // 100 MB
+    // Absolute application ceiling; tier limits are enforced separately in FileService.
+    public const long MaxUploadSizeBytes = SubscriptionLimits.PaidMaxFileSizeBytes;
 
     public static readonly HashSet<string> AllowedFileTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase) 
     {
@@ -14,7 +15,7 @@ public static class AcceptedFileTypes
 }
 
 /** Notes on future zip support:
-    - Strict upload size/rate limits (you already have 100MB cap)
+    - Strict upload size/rate limits
     - Antivirus/malware scanning (async is fine)
     - If extracting in future: safe extraction library, block .. paths, cap total extracted size/file count/nesting depth, block symlinks, reject encrypted archives unless required
 **/

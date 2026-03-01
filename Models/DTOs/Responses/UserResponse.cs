@@ -9,6 +9,9 @@ public class UserResponse
     public string LastName { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
     public Role Role { get; set; } = Role.User;
+    public SubscriptionTier SubscriptionTier { get; set; } = SubscriptionTier.Free;
+    public long CurrentStorageUsedBytes { get; set; }
+    public int UploadsTodayCount { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastLogin { get; set; }
 }

@@ -35,6 +35,12 @@ public class FileService : IFileService
             throw new ArgumentNullException(nameof(userId));
         }
 
+        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Id == userId)
+            ?? throw new UnauthorizedAccessException("User not found");
+
+        await RefreshUserUsageMetrics(user);
+        EnforceTierLimits(user, file.Length);
+
         _fileValidationService.ValidateUpload(file);
 
         var fileName = file.FileName;
@@ -96,6 +102,12 @@ public class FileService : IFileService
         
         // Save to database
         _dbContext.Files.Add(fileEntity);
+
+        user.CurrentStorageUsedBytes += fileSize;
+        user.UploadsTodayCount += 1;
+        user.UploadsCountDateUtc = DateTime.UtcNow.Date;
+        user.UpdatedAt = DateTime.UtcNow;
+
         await _dbContext.SaveChangesAsync();
         
         return fileEntity;
@@ -165,6 +177,13 @@ public class FileService : IFileService
             ?? throw new FileNotFoundException($"File with id {fileId} not found or access denied");
 
         await _blobStorageService.DeleteAsync(file.BlobPath);
+
+        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Id == userId)
+            ?? throw new UnauthorizedAccessException("User not found");
+
+        await RefreshUserUsageMetrics(user);
+        user.CurrentStorageUsedBytes = Math.Max(0, user.CurrentStorageUsedBytes - file.Size);
+        user.UpdatedAt = DateTime.UtcNow;
 
         _dbContext.Files.Remove(file);
         await _dbContext.SaveChangesAsync();
@@ -367,5 +386,58 @@ public class FileService : IFileService
             totalRead += bytesRead;
         }
         return totalRead;
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        const long kb = 1024;
+        const long mb = kb * 1024;
+        const long gb = mb * 1024;
+
+        if (bytes >= gb) return $"{bytes / (double)gb:0.##} GB";
+        if (bytes >= mb) return $"{bytes / (double)mb:0.##} MB";
+        if (bytes >= kb) return $"{bytes / (double)kb:0.##} KB";
+        return $"{bytes} bytes";
+    }
+
+    private void EnforceTierLimits(User user, long incomingFileSize)
+    {
+        var limits = SubscriptionLimits.ForTier(user.SubscriptionTier);
+
+        if (incomingFileSize > limits.MaxFileSizeBytes)
+        {
+            throw new BadHttpRequestException(
+                $"This file exceeds your {user.SubscriptionTier} tier max file size of {FormatBytes(limits.MaxFileSizeBytes)}.");
+        }
+
+        if (user.CurrentStorageUsedBytes + incomingFileSize > limits.MaxTotalStorageBytes)
+        {
+            throw new BadHttpRequestException(
+                $"This upload would exceed your {user.SubscriptionTier} tier storage limit of {FormatBytes(limits.MaxTotalStorageBytes)}.");
+        }
+
+        if (limits.MaxUploadsPerDay.HasValue && user.UploadsTodayCount >= limits.MaxUploadsPerDay.Value)
+        {
+            throw new BadHttpRequestException(
+                $"You have reached your {user.SubscriptionTier} tier daily upload limit ({limits.MaxUploadsPerDay.Value}/day).");
+        }
+    }
+
+    private async Task RefreshUserUsageMetrics(User user)
+    {
+        user.CurrentStorageUsedBytes = await _dbContext.Files
+            .Where(f => f.UserId == user.Id)
+            .SumAsync(f => (long?)f.Size) ?? 0;
+
+        var startOfTodayUtc = DateTime.UtcNow.Date;
+        var endOfTodayUtc = startOfTodayUtc.AddDays(1);
+
+        user.UploadsTodayCount = await _dbContext.Files
+            .CountAsync(f =>
+                f.UserId == user.Id &&
+                f.UploadedAt >= startOfTodayUtc &&
+                f.UploadedAt < endOfTodayUtc);
+
+        user.UploadsCountDateUtc = startOfTodayUtc;
     }
 }   

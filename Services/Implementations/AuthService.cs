@@ -49,6 +49,10 @@ public class AuthService : IAuthService
             LastName = request.LastName.Trim(),
             Email = email,
             Role = Role.User,
+            SubscriptionTier = SubscriptionTier.Free,
+            CurrentStorageUsedBytes = 0,
+            UploadsTodayCount = 0,
+            UploadsCountDateUtc = DateTime.UtcNow.Date,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password.Trim()),
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -118,6 +122,9 @@ public class AuthService : IAuthService
         LastName = user.LastName,
         Email = user.Email,
         Role = user.Role,
+        SubscriptionTier = user.SubscriptionTier,
+        CurrentStorageUsedBytes = user.CurrentStorageUsedBytes,
+        UploadsTodayCount = user.UploadsTodayCount,
         CreatedAt = user.CreatedAt,
         LastLogin = user.LastLogin
     };

@@ -27,6 +27,9 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.LastName).IsRequired().HasMaxLength(50);
             entity.Property(e => e.PasswordHash).IsRequired();
             entity.Property(e => e.Role).IsRequired();
+            entity.Property(e => e.SubscriptionTier).IsRequired();
+            entity.Property(e => e.CurrentStorageUsedBytes).IsRequired();
+            entity.Property(e => e.UploadsTodayCount).IsRequired();
             entity.Property(e => e.CreatedAt).IsRequired();
             entity.Property(e => e.UpdatedAt).IsRequired();
         });

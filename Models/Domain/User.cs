@@ -26,6 +26,17 @@ public class User
     [Required]
     public Role Role { get; set; } = Role.User;   
 
+    [Required]
+    public SubscriptionTier SubscriptionTier { get; set; } = SubscriptionTier.Free;
+
+    [Required]
+    public long CurrentStorageUsedBytes { get; set; } = 0;
+
+    [Required]
+    public int UploadsTodayCount { get; set; } = 0;
+
+    public DateTime? UploadsCountDateUtc { get; set; }
+
     public virtual ICollection<File> Files { get; set; } = new List<File>();
 
     [Required]
