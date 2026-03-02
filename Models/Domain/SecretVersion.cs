@@ -24,7 +24,7 @@ public class SecretVersion
 
     public string? PayloadHash { get; set; }
 
-    public string? CreatedByUserId { get; set; }
+    public Guid? CreatedByUserId { get; set; }
 
     [Required]
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;

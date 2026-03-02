@@ -3,7 +3,6 @@ using lockhaven_backend.Constants;
 using lockhaven_backend.Data;
 using lockhaven_backend.Models;
 using lockhaven_backend.Services.Interfaces;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using File = lockhaven_backend.Models.File;
 
@@ -28,9 +27,9 @@ public class FileService : IFileService
         _fileValidationService = fileValidationService;
     }
 
-    public async Task<File> UploadFile(IFormFile file, string userId)
+    public async Task<File> UploadFile(IFormFile file, Guid userId)
     {
-        if (string.IsNullOrEmpty(userId))
+        if (Guid.Empty == userId)
         {
             throw new ArgumentNullException(nameof(userId));
         }
@@ -113,11 +112,11 @@ public class FileService : IFileService
         return fileEntity;
     }
 
-    public async Task<Stream> DownloadFile(string fileId, string userId)
+    public async Task<Stream> DownloadFile(Guid fileId, Guid userId)
     {
-        if (string.IsNullOrEmpty(fileId) || string.IsNullOrEmpty(userId))
+        if (fileId == Guid.Empty || userId == Guid.Empty)
         {
-            throw new ArgumentNullException("fileId and userId cannot be null or empty");
+            throw new ArgumentNullException("fileId and userId cannot be empty");
         }
 
         // Get file metadata and verify ownership
@@ -142,11 +141,11 @@ public class FileService : IFileService
         }
     }
 
-    public async Task<File?> GetFileById(string fileId, string userId)
+    public async Task<File?> GetFileById(Guid fileId, Guid userId)
     {
-        if (string.IsNullOrEmpty(fileId) || string.IsNullOrEmpty(userId)) 
+        if (fileId == Guid.Empty || userId == Guid.Empty) 
         {
-            throw new ArgumentNullException($"{nameof(fileId)} and {nameof(userId)} cannot be null or empty");
+            throw new ArgumentNullException($"{nameof(fileId)} and {nameof(userId)} cannot be empty");
         }
 
         var file = await _dbContext.Files
@@ -155,21 +154,21 @@ public class FileService : IFileService
         return file;
     }
 
-    public async Task<ICollection<File>> GetUserFiles(string userId)
+    public async Task<ICollection<File>> GetUserFiles(Guid userId)
     {
-        if (string.IsNullOrEmpty(userId)) 
+        if (userId == Guid.Empty) 
         {
-            throw new ArgumentNullException($"{nameof(userId)} cannot be null or empty");
+            throw new ArgumentNullException($"{nameof(userId)} cannot be empty");
         }
 
         return await _dbContext.Files.Where(f => f.UserId == userId).ToListAsync();
     }
 
-    public async Task<bool> DeleteFile(string fileId, string userId)
+    public async Task<bool> DeleteFile(Guid fileId, Guid userId)
     {
-        if (string.IsNullOrEmpty(fileId) || string.IsNullOrEmpty(userId))
+        if (fileId == Guid.Empty || userId == Guid.Empty)
         {
-            throw new ArgumentNullException($"{nameof(fileId)} and {nameof(userId)} cannot be null or empty");
+            throw new ArgumentNullException($"{nameof(fileId)} and {nameof(userId)} cannot be empty");
         }
 
         var file = await _dbContext.Files
@@ -191,11 +190,11 @@ public class FileService : IFileService
         return true;
     }
 
-    public async Task<long> GetUserStorageUsed(string userId)
+    public async Task<long> GetUserStorageUsed(Guid userId)
     {
-        if (string.IsNullOrEmpty(userId))
+        if (userId == Guid.Empty)
         {
-            throw new ArgumentNullException($"{nameof(userId)} cannot be null or empty");
+            throw new ArgumentNullException($"{nameof(userId)} cannot be empty");
         }
 
         return await _dbContext.Files
@@ -203,11 +202,11 @@ public class FileService : IFileService
             .SumAsync(f => f.Size);
     }
 
-    private async Task<bool> UserOwnsFile(string fileId, string userId)
+    private async Task<bool> UserOwnsFile(Guid fileId, Guid userId)
     {
-        if (string.IsNullOrEmpty(fileId) || string.IsNullOrEmpty(userId)) 
+        if (fileId == Guid.Empty || userId == Guid.Empty) 
         {
-            throw new ArgumentNullException($"{nameof(fileId)} and {nameof(userId)} cannot be null or empty");
+            throw new ArgumentNullException($"{nameof(fileId)} and {nameof(userId)} cannot be empty");
         }
 
         return await _dbContext.Files

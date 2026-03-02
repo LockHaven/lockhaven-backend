@@ -8,7 +8,7 @@ public class Project
     public Guid Id { get; set; } = Guid.NewGuid();
 
     [Required]
-    public string OwnerUserId { get; set; } = string.Empty;
+    public Guid OwnerUserId { get; set; }
 
     [Required]
     [StringLength(100)]

@@ -14,7 +14,7 @@ public class SecretAuditEvent
 
     public Guid? SecretId { get; set; }
 
-    public string? UserId { get; set; }
+    public Guid? UserId { get; set; }
 
     [Required]
     [StringLength(50)]

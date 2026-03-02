@@ -4,7 +4,7 @@ public class ProjectMember
 {
     public Guid ProjectId { get; set; }
 
-    public string UserId { get; set; } = string.Empty;
+    public Guid UserId { get; set; }
 
     public ProjectMemberRole Role { get; set; } = ProjectMemberRole.Member;
 

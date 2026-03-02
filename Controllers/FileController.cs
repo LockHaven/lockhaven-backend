@@ -17,9 +17,18 @@ public class FileController : ControllerBase
         _fileService = fileService;
     }
 
-    private string GetUserId()
-        => User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
-            ?? throw new UnauthorizedAccessException("User ID not found in token");
+    private Guid GetUserId() 
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrWhiteSpace(userIdClaim))
+            throw new UnauthorizedAccessException("User ID not found in token");
+
+        if (!Guid.TryParse(userIdClaim, out var userId))
+            throw new UnauthorizedAccessException("User ID claim is not a valid GUID");
+
+        return userId;
+    }
 
     [HttpPost("upload")]
     [Consumes("multipart/form-data")]
@@ -40,10 +49,10 @@ public class FileController : ControllerBase
         });
     }
 
-    [HttpGet("download/{fileId}")]
-    public async Task<IActionResult> DownloadFile(string fileId)
+    [HttpGet("download/{fileId:guid}")]
+    public async Task<IActionResult> DownloadFile(Guid fileId)
     {
-        if (string.IsNullOrEmpty(fileId))
+        if (fileId == Guid.Empty)
             throw new BadHttpRequestException("File ID is required");
 
         var userId = GetUserId();
@@ -62,10 +71,10 @@ public class FileController : ControllerBase
         return Ok(files);
     }
 
-    [HttpDelete("{fileId}")]
-    public async Task<IActionResult> DeleteFile(string fileId)
+    [HttpDelete("{fileId:guid}")]
+    public async Task<IActionResult> DeleteFile(Guid fileId)
     {
-        if (string.IsNullOrEmpty(fileId))
+        if (fileId == Guid.Empty)
             throw new BadHttpRequestException("File ID is required");
 
         var userId = GetUserId();

@@ -106,8 +106,13 @@ public class AuthService : IAuthService
 
     public async Task<UserResponse> GetProfile(ClaimsPrincipal user)
     {
-        var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value
+        var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier)?.Value
             ?? throw new UnauthorizedAccessException("User not authenticated");
+
+        if (!Guid.TryParse(userIdClaim, out var userId))
+        {
+            throw new UnauthorizedAccessException("Invalid user identifier");
+        }
 
         var userEntity = await _dbContext.Users.FindAsync(userId)
             ?? throw new UnauthorizedAccessException("User not found");
