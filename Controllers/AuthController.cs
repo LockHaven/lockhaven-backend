@@ -44,9 +44,9 @@ public class AuthController : ControllerBase
 
     [HttpGet("profile")]
     [Authorize]
-    public async Task<IActionResult> GetProfile()
+    public async Task<IActionResult> GetProfile([FromServices] ICurrentUserService currentUserService)
     {
-        var result = await _authService.GetProfile(User);
+        var result = await _authService.GetProfile(currentUserService.UserId);
         return Ok(result);
     }
 }

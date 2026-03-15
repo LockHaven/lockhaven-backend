@@ -1,5 +1,4 @@
 using File = lockhaven_backend.Models.File;
-using Microsoft.AspNetCore.Http;
 
 namespace lockhaven_backend.Services.Interfaces;
 

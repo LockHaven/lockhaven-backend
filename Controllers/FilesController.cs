@@ -1,33 +1,21 @@
 using lockhaven_backend.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Security.Claims;
 
 namespace lockhaven_backend.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-public class FileController : ControllerBase
+public class FilesController : ControllerBase
 {
     private readonly IFileService _fileService;
+    private readonly ICurrentUserService _currentUserService;
 
-    public FileController(IFileService fileService)
+    public FilesController(IFileService fileService, ICurrentUserService currentUserService)
     {
         _fileService = fileService;
-    }
-
-    private Guid GetUserId() 
-    {
-        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-        if (string.IsNullOrWhiteSpace(userIdClaim))
-            throw new UnauthorizedAccessException("User ID not found in token");
-
-        if (!Guid.TryParse(userIdClaim, out var userId))
-            throw new UnauthorizedAccessException("User ID claim is not a valid GUID");
-
-        return userId;
+        _currentUserService = currentUserService;
     }
 
     [HttpPost("upload")]
@@ -37,8 +25,7 @@ public class FileController : ControllerBase
         if (file == null)
             throw new BadHttpRequestException("File is null or empty");
 
-        var userId = GetUserId();
-        var result = await _fileService.UploadFile(file, userId);
+        var result = await _fileService.UploadFile(file, _currentUserService.UserId);
 
         return Ok(new
         {
@@ -55,10 +42,9 @@ public class FileController : ControllerBase
         if (fileId == Guid.Empty)
             throw new BadHttpRequestException("File ID is required");
 
-        var userId = GetUserId();
-        var fileMetadata = await _fileService.GetFileById(fileId, userId)
+        var fileMetadata = await _fileService.GetFileById(fileId, _currentUserService.UserId)
             ?? throw new FileNotFoundException($"File with id {fileId} not found");
-        var fileStream = await _fileService.DownloadFile(fileId, userId);
+        var fileStream = await _fileService.DownloadFile(fileId, _currentUserService.UserId);
 
         return File(fileStream, fileMetadata.ContentType, fileMetadata.Name);
     }
@@ -66,8 +52,7 @@ public class FileController : ControllerBase
     [HttpGet("list")]
     public async Task<IActionResult> GetUserFiles()
     {
-        var userId = GetUserId();
-        var files = await _fileService.GetUserFiles(userId);
+        var files = await _fileService.GetUserFiles(_currentUserService.UserId);
         return Ok(files);
     }
 
@@ -77,8 +62,7 @@ public class FileController : ControllerBase
         if (fileId == Guid.Empty)
             throw new BadHttpRequestException("File ID is required");
 
-        var userId = GetUserId();
-        await _fileService.DeleteFile(fileId, userId);
+        await _fileService.DeleteFile(fileId, _currentUserService.UserId);
 
         return Ok(new { message = "File deleted successfully" });
     }
@@ -86,8 +70,7 @@ public class FileController : ControllerBase
     [HttpGet("storage")]
     public async Task<IActionResult> GetStorageUsed()
     {
-        var userId = GetUserId();
-        var storageUsed = await _fileService.GetUserStorageUsed(userId);
+        var storageUsed = await _fileService.GetUserStorageUsed(_currentUserService.UserId);
 
         return Ok(new
         {

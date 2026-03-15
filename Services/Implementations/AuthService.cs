@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using lockhaven_backend.Data;
 using lockhaven_backend.Models;
 using lockhaven_backend.Models.Requests;
@@ -104,12 +103,9 @@ public class AuthService : IAuthService
         };
     }
 
-    public async Task<UserResponse> GetProfile(ClaimsPrincipal user)
+    public async Task<UserResponse> GetProfile(Guid userId)
     {
-        var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier)?.Value
-            ?? throw new UnauthorizedAccessException("User not authenticated");
-
-        if (!Guid.TryParse(userIdClaim, out var userId))
+        if (userId == Guid.Empty)
         {
             throw new UnauthorizedAccessException("Invalid user identifier");
         }

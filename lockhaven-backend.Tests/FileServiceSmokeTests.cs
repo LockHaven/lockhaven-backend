@@ -31,7 +31,7 @@ public class FileServiceSmokeTests
 
         var fileService = new FileService(dbContext, localStorage, vaultService, validationService);
 
-        const string userId = "integration-user-1";
+        var userId = Guid.NewGuid();
         const string sourceContent = "lockhaven smoke test content";
         var uploadFile = CreateFormFile("smoke-test.txt", "text/plain", sourceContent);
 

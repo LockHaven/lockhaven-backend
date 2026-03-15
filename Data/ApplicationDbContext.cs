@@ -74,9 +74,14 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.Slug).IsRequired().HasMaxLength(120);
             entity.Property(e => e.CreatedAtUtc).IsRequired();
             entity.Property(e => e.UpdatedAtUtc).IsRequired();
+            entity.Property(e => e.IsDeleted).IsRequired().HasDefaultValue(false);
+            entity.Property(e => e.DeletedAtUtc);
 
-            entity.HasIndex(e => new { e.OwnerUserId, e.Slug }).IsUnique();
-            entity.HasIndex(e => new { e.OwnerUserId, e.Name });
+            entity.HasIndex(e => new { e.OwnerUserId, e.Slug })
+                .IsUnique()
+                .HasFilter("\"IsDeleted\" = false");
+            entity.HasIndex(e => new { e.OwnerUserId, e.Name })
+                .HasFilter("\"IsDeleted\" = false");
 
             entity.HasOne(e => e.OwnerUser)
                   .WithMany(u => u.OwnedProjects)

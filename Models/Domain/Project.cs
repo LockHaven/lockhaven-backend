@@ -24,6 +24,11 @@ public class Project
     [Required]
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 
+    [Required]
+    public bool IsDeleted { get; set; } = false;
+
+    public DateTime? DeletedAtUtc { get; set; }
+
     public virtual User? OwnerUser { get; set; }
     public virtual ICollection<ProjectEnvironment> Environments { get; set; } = new List<ProjectEnvironment>();
     public virtual ICollection<ProjectMember> Members { get; set; } = new List<ProjectMember>();

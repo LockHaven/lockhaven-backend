@@ -2,6 +2,7 @@ using System.Text;
 using Azure.Storage.Blobs;
 using lockhaven_backend.Data;
 using lockhaven_backend.Services;
+using lockhaven_backend.Services.Implementations;
 using lockhaven_backend.Services.Interfaces;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -129,7 +130,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IJwtService, JwtService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IFileService, FileService>();
+        services.AddScoped<IProjectService, ProjectService>();
         services.AddScoped<IFileValidationService, FileValidationService>();
+        services.AddHttpContextAccessor();
+        services.AddScoped<ICurrentUserService, CurrentUserService>();
 
         // -------------------------------
         // Health Checks
