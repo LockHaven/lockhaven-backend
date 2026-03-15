@@ -127,17 +127,32 @@ public class ProjectService : IProjectService
 
         var newName = request.Name?.Trim();
         var newSlug = request.Slug?.Trim().ToLowerInvariant();
+        var hasNameUpdate = !string.IsNullOrWhiteSpace(newName);
+        var hasSlugUpdate = !string.IsNullOrWhiteSpace(newSlug);
 
-        if (newName is { Length: > 0 })
+        if (!hasNameUpdate && !hasSlugUpdate)
         {
-            project.Name = newName;
+            throw new BadHttpRequestException("At least one field must be provided to update the project");
         }
 
-        if (newSlug is { Length: > 0 } && !string.Equals(project.Slug, newSlug, StringComparison.Ordinal))
+        var hasActualNameChange = hasNameUpdate && !string.Equals(project.Name, newName, StringComparison.Ordinal);
+        var hasActualSlugChange = hasSlugUpdate && !string.Equals(project.Slug, newSlug, StringComparison.Ordinal);
+
+        if (!hasActualNameChange && !hasActualSlugChange)
+        {
+            throw new BadHttpRequestException("No changes detected for project update");
+        }
+
+        if (hasActualNameChange)
+        {
+            project.Name = newName!;
+        }
+
+        if (hasActualSlugChange)
         {
             var slugTaken = await _dbContext.Projects.AnyAsync(p =>
                 p.OwnerUserId == project.OwnerUserId &&
-                p.Slug == newSlug &&
+                p.Slug == newSlug! &&
                 p.Id != project.Id &&
                 !p.IsDeleted);
 
@@ -146,7 +161,7 @@ public class ProjectService : IProjectService
                 throw new InvalidOperationException("A project with this slug already exists for this owner");
             }
 
-            project.Slug = newSlug;
+            project.Slug = newSlug!;
         }
 
         project.UpdatedAtUtc = DateTime.UtcNow;
