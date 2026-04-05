@@ -2,9 +2,11 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using lockhaven_backend.Data;
+using lockhaven_backend.Models;
 using lockhaven_backend.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -32,6 +34,18 @@ public class FileServiceSmokeTests
         var fileService = new FileService(dbContext, localStorage, vaultService, validationService);
 
         var userId = Guid.NewGuid();
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            FirstName = "Test",
+            LastName = "User",
+            Email = "smoke@test.local",
+            PasswordHash = "x",
+            SubscriptionTier = SubscriptionTier.Free,
+            UploadsCountDateUtc = DateTime.UtcNow.Date
+        });
+        await dbContext.SaveChangesAsync();
+
         const string sourceContent = "lockhaven smoke test content";
         var uploadFile = CreateFormFile("smoke-test.txt", "text/plain", sourceContent);
 
@@ -47,6 +61,7 @@ public class FileServiceSmokeTests
     {
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
             .Options;
 
         return new ApplicationDbContext(options);

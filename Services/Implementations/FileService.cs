@@ -1,3 +1,4 @@
+using System.Data;
 using System.Security.Cryptography;
 using lockhaven_backend.Constants;
 using lockhaven_backend.Data;
@@ -34,12 +35,6 @@ public class FileService : IFileService
             throw new ArgumentNullException(nameof(userId));
         }
 
-        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Id == userId)
-            ?? throw new UnauthorizedAccessException("User not found");
-
-        await RefreshUserUsageMetrics(user);
-        EnforceTierLimits(user, file.Length);
-
         _fileValidationService.ValidateUpload(file);
 
         var fileName = file.FileName;
@@ -70,26 +65,55 @@ public class FileService : IFileService
             // Generate per-file data encryption key (DEK) and IV
             var key = GenerateEncryptionKey();
             var iv = GenerateInitializationVector();
-            
-            // Encrypt the DEK and IV with the Key Encryption Key (KEK) from Azure Key Vault
+
+            // Encrypt the DEK and IV with the KEK (e.g. Vault Transit)
             fileEntity.EncryptedKey = await _keyEncryptionService.EncryptKeyAsync(key);
             fileEntity.InitializationVector = await _keyEncryptionService.EncryptIvAsync(iv);
-            
+
             // Encrypt the file stream with the DEK using chunked format
             uploadStream = EncryptStreamChunked(fileStream, key, iv);
         }
         else
         {
             // Client-side encryption (future approach)
-            // File is already encrypted, just store it
             fileEntity.EncryptedKey = string.Empty;
             fileEntity.InitializationVector = string.Empty;
         }
 
+        // Serializable transaction serializes quota checks + inserts so concurrent uploads cannot bypass limits.
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(IsolationLevel.Serializable);
         try
         {
-            // Store in blob storage
+            var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Id == userId)
+                ?? throw new UnauthorizedAccessException("User not found");
+
+            await RefreshUserUsageMetrics(user);
+            EnforceTierLimits(user, fileSize);
+
+            _dbContext.Files.Add(fileEntity);
+
+            user.CurrentStorageUsedBytes += fileSize;
+            user.UploadsTodayCount += 1;
+            user.UploadsCountDateUtc = DateTime.UtcNow.Date;
+            user.UpdatedAt = DateTime.UtcNow;
+
+            await _dbContext.SaveChangesAsync();
+            await transaction.CommitAsync();
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+
+        try
+        {
             await _blobStorageService.UploadAsync(uploadStream, blobPath, contentType);
+        }
+        catch
+        {
+            await CompensateFailedBlobUploadAsync(fileEntity.Id, userId);
+            throw;
         }
         finally
         {
@@ -98,18 +122,38 @@ public class FileService : IFileService
                 uploadStream.Dispose();
             }
         }
-        
-        // Save to database
-        _dbContext.Files.Add(fileEntity);
 
-        user.CurrentStorageUsedBytes += fileSize;
-        user.UploadsTodayCount += 1;
-        user.UploadsCountDateUtc = DateTime.UtcNow.Date;
-        user.UpdatedAt = DateTime.UtcNow;
-
-        await _dbContext.SaveChangesAsync();
-        
         return fileEntity;
+    }
+
+    private async Task CompensateFailedBlobUploadAsync(Guid fileId, Guid userId)
+    {
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+        try
+        {
+            var fileEntity = await _dbContext.Files
+                .FirstOrDefaultAsync(f => f.Id == fileId && f.UserId == userId);
+
+            if (fileEntity == null)
+            {
+                await transaction.CommitAsync();
+                return;
+            }
+
+            _dbContext.Files.Remove(fileEntity);
+
+            var user = await _dbContext.Users.FirstAsync(u => u.Id == userId);
+            await RefreshUserUsageMetrics(user);
+            user.UpdatedAt = DateTime.UtcNow;
+
+            await _dbContext.SaveChangesAsync();
+            await transaction.CommitAsync();
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
     }
 
     public async Task<Stream> DownloadFile(Guid fileId, Guid userId)
