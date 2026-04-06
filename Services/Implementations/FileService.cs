@@ -29,7 +29,7 @@ public class FileService : IFileService
         _fileValidationService = fileValidationService;
     }
 
-    public async Task<File> UploadFile(IFormFile file, Guid userId)
+    public async Task<File> UploadFile(IFormFile file, Guid userId, CancellationToken cancellationToken = default)
     {
         if (Guid.Empty == userId)
         {
@@ -68,8 +68,8 @@ public class FileService : IFileService
             var iv = GenerateInitializationVector();
 
             // Encrypt the DEK and IV with the KEK (e.g. Vault Transit)
-            fileEntity.EncryptedKey = await _keyEncryptionService.EncryptKeyAsync(key);
-            fileEntity.InitializationVector = await _keyEncryptionService.EncryptIvAsync(iv);
+            fileEntity.EncryptedKey = await _keyEncryptionService.EncryptKeyAsync(key, cancellationToken);
+            fileEntity.InitializationVector = await _keyEncryptionService.EncryptIvAsync(iv, cancellationToken);
 
             // Encrypt on read while uploading — does not buffer the whole ciphertext in RAM
             uploadStream = new ChunkedAesGcmEncryptingStream(fileStream, key, iv, leavePlaintextOpen: true);
@@ -109,7 +109,7 @@ public class FileService : IFileService
 
         try
         {
-            await _blobStorageService.UploadAsync(uploadStream, blobPath, contentType);
+            await _blobStorageService.UploadAsync(uploadStream, blobPath, contentType, cancellationToken: cancellationToken);
         }
         catch
         {
@@ -157,7 +157,7 @@ public class FileService : IFileService
         }
     }
 
-    public async Task<Stream> DownloadFile(Guid fileId, Guid userId)
+    public async Task<Stream> DownloadFile(Guid fileId, Guid userId, CancellationToken cancellationToken = default)
     {
         if (fileId == Guid.Empty || userId == Guid.Empty)
         {
@@ -168,13 +168,13 @@ public class FileService : IFileService
         var file = await GetFileById(fileId, userId) ?? throw new FileNotFoundException($"File with id {fileId} not found or access denied");
 
         // Download from blob storage
-        var encryptedStream = await _blobStorageService.DownloadAsync(file.BlobPath);
+        var encryptedStream = await _blobStorageService.DownloadAsync(file.BlobPath, cancellationToken);
 
         if (!file.IsClientEncrypted)
         {
-            // Server-side encryption - decrypt the DEK and IV using the KEK from Azure Key Vault
-            var key = await _keyEncryptionService.DecryptKeyAsync(file.EncryptedKey);
-            var iv = await _keyEncryptionService.DecryptIvAsync(file.InitializationVector);
+            // Server-side encryption - decrypt the DEK and IV using the KEK (e.g. Vault Transit)
+            var key = await _keyEncryptionService.DecryptKeyAsync(file.EncryptedKey, cancellationToken);
+            var iv = await _keyEncryptionService.DecryptIvAsync(file.InitializationVector, cancellationToken);
             
             // Decrypt on read — does not buffer the whole plaintext in RAM
             return new ChunkedAesGcmDecryptingStream(encryptedStream, key, iv, leaveCiphertextOpen: false);

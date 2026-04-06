@@ -1,6 +1,7 @@
 using System.Text;
 using Azure.Storage.Blobs;
 using lockhaven_backend.Data;
+using lockhaven_backend.Infrastructure.Http;
 using lockhaven_backend.Services;
 using lockhaven_backend.Services.Implementations;
 using lockhaven_backend.Services.Interfaces;
@@ -111,7 +112,30 @@ public static class ServiceCollectionExtensions
 
         if (string.Equals(keyProvider, "VaultTransit", StringComparison.OrdinalIgnoreCase))
         {
-            services.AddHttpClient("VaultTransit");
+            services.AddHttpClient("VaultTransit", (sp, client) =>
+                {
+                    var configuration = sp.GetRequiredService<IConfiguration>();
+                    var perTrySeconds = configuration.GetValue("Vault:PerTryTimeoutSeconds", 30);
+                    var maxRetries = configuration.GetValue("Vault:MaxRetries", 3);
+                    // Upper bound for one logical operation (retries + backoff + jitter).
+                    client.Timeout = TimeSpan.FromSeconds(perTrySeconds * (maxRetries + 1) + 60);
+                })
+                .AddPolicyHandler((sp, _) =>
+                {
+                    var configuration = sp.GetRequiredService<IConfiguration>();
+                    return VaultTransitHttpPolicies.CreatePerTryTimeoutPolicy(configuration);
+                })
+                .AddPolicyHandler((sp, _) =>
+                {
+                    var configuration = sp.GetRequiredService<IConfiguration>();
+                    return VaultTransitHttpPolicies.CreateCircuitBreakerPolicy(configuration);
+                })
+                .AddPolicyHandler((sp, _) =>
+                {
+                    var configuration = sp.GetRequiredService<IConfiguration>();
+                    return VaultTransitHttpPolicies.CreateRetryPolicy(configuration);
+                });
+
             services.AddSingleton<IKeyEncryptionService>(serviceProvider =>
             {
                 var httpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();

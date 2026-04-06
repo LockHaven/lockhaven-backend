@@ -28,7 +28,7 @@ public class FilesController : ControllerBase
         if (file == null)
             throw new BadHttpRequestException("File is null or empty");
 
-        var result = await _fileService.UploadFile(file, _currentUserService.UserId);
+        var result = await _fileService.UploadFile(file, _currentUserService.UserId, HttpContext.RequestAborted);
 
         return Ok(new
         {
@@ -47,7 +47,7 @@ public class FilesController : ControllerBase
 
         var fileMetadata = await _fileService.GetFileById(fileId, _currentUserService.UserId)
             ?? throw new FileNotFoundException($"File with id {fileId} not found");
-        var fileStream = await _fileService.DownloadFile(fileId, _currentUserService.UserId);
+        var fileStream = await _fileService.DownloadFile(fileId, _currentUserService.UserId, HttpContext.RequestAborted);
 
         return File(fileStream, fileMetadata.ContentType, fileMetadata.Name);
     }
