@@ -4,6 +4,7 @@ using lockhaven_backend.Constants;
 using lockhaven_backend.Data;
 using lockhaven_backend.Models;
 using lockhaven_backend.Services.Interfaces;
+using lockhaven_backend.Services.Streaming;
 using Microsoft.EntityFrameworkCore;
 using File = lockhaven_backend.Models.File;
 
@@ -70,8 +71,8 @@ public class FileService : IFileService
             fileEntity.EncryptedKey = await _keyEncryptionService.EncryptKeyAsync(key);
             fileEntity.InitializationVector = await _keyEncryptionService.EncryptIvAsync(iv);
 
-            // Encrypt the file stream with the DEK using chunked format
-            uploadStream = EncryptStreamChunked(fileStream, key, iv);
+            // Encrypt on read while uploading — does not buffer the whole ciphertext in RAM
+            uploadStream = new ChunkedAesGcmEncryptingStream(fileStream, key, iv, leavePlaintextOpen: true);
         }
         else
         {
@@ -175,8 +176,8 @@ public class FileService : IFileService
             var key = await _keyEncryptionService.DecryptKeyAsync(file.EncryptedKey);
             var iv = await _keyEncryptionService.DecryptIvAsync(file.InitializationVector);
             
-            // Decrypt the file stream with the decrypted DEK
-            return DecryptStreamChunked(encryptedStream, key, iv);
+            // Decrypt on read — does not buffer the whole plaintext in RAM
+            return new ChunkedAesGcmDecryptingStream(encryptedStream, key, iv, leaveCiphertextOpen: false);
         }
         else
         {
@@ -301,134 +302,6 @@ public class FileService : IFileService
             //".zip" => FileType.Zip, NOTE: Disabled due to security concerns for now
             _ => FileType.Txt // Default fallback
         };
-    }
-
-    /// <summary>
-    /// Encrypts a stream using chunked AES-256-GCM (Format V2)
-    /// Format: [Chunk1: [ChunkIV(12)][Tag(16)][CiphertextLength(4)][Ciphertext(N)]][Chunk2:...]
-    /// Base IV is stored in database, each chunk gets unique IV derived from base IV + counter
-    /// </summary>
-    private Stream EncryptStreamChunked(Stream inputStream, byte[] key, byte[] baseIv)
-    {
-        using var aesGcm = new AesGcm(key, EncryptionConstants.TagSize);
-        
-        var result = new MemoryStream();
-        var buffer = new byte[EncryptionConstants.ChunkSize];
-        var chunkIv = new byte[EncryptionConstants.NonceSize];
-        var chunkCounter = 0;
-        
-        int bytesRead;
-        while ((bytesRead = inputStream.Read(buffer, 0, buffer.Length)) > 0)
-        {
-            // Derive unique IV for this chunk: base IV with counter appended to last 4 bytes
-            baseIv.CopyTo(chunkIv, 0);
-            var counterBytes = BitConverter.GetBytes(chunkCounter++);
-            Array.Copy(counterBytes, 0, chunkIv, EncryptionConstants.NonceSize - 4, 4);
-            
-            // Encrypt chunk
-            var ciphertext = new byte[bytesRead];
-            var tag = new byte[EncryptionConstants.TagSize];
-            aesGcm.Encrypt(chunkIv, buffer.AsSpan(0, bytesRead), ciphertext, tag);
-            
-            // Write chunk IV, tag, ciphertext length, and ciphertext
-            result.Write(chunkIv, 0, chunkIv.Length);
-            result.Write(tag, 0, tag.Length);
-            var lengthBytes = BitConverter.GetBytes(ciphertext.Length);
-            result.Write(lengthBytes, 0, lengthBytes.Length);
-            result.Write(ciphertext, 0, ciphertext.Length);
-        }
-        
-        result.Position = 0;
-        return result;
-    }
-
-    /// <summary>
-    /// Decrypts a chunked AES-256-GCM stream (Format V2)
-    /// Format: [Chunk1: [ChunkIV(12)][Tag(16)][CiphertextLength(4)][Ciphertext(N)]][Chunk2:...]
-    /// </summary>
-    private Stream DecryptStreamChunked(Stream encryptedStream, byte[] key, byte[] baseIv)
-    {
-        using var aesGcm = new AesGcm(key, EncryptionConstants.TagSize);
-        
-        var result = new MemoryStream();
-        var chunkIv = new byte[EncryptionConstants.NonceSize];
-        var tag = new byte[EncryptionConstants.TagSize];
-        var lengthBytes = new byte[sizeof(int)];
-        var chunkCounter = 0;
-        
-        while (true)
-        {
-            // Read chunk IV - if we can't read a full IV, we've reached the end
-            var ivRead = ReadExactly(encryptedStream, chunkIv, 0, chunkIv.Length);
-            if (ivRead == 0)
-            {
-                break; // End of stream
-            }
-            if (ivRead != chunkIv.Length)
-            {
-                throw new CryptographicException("Invalid encrypted file format: truncated chunk IV");
-            }
-            
-            // Read chunk tag
-            var tagRead = ReadExactly(encryptedStream, tag, 0, tag.Length);
-            if (tagRead != tag.Length)
-            {
-                throw new CryptographicException("Invalid encrypted file format: truncated chunk tag");
-            }
-            
-            // Read ciphertext length
-            var lengthRead = ReadExactly(encryptedStream, lengthBytes, 0, lengthBytes.Length);
-            if (lengthRead != lengthBytes.Length)
-            {
-                throw new CryptographicException("Invalid encrypted file format: truncated ciphertext length");
-            }
-            
-            var ciphertextLength = BitConverter.ToInt32(lengthBytes, 0);
-            if (ciphertextLength < 0 || ciphertextLength > EncryptionConstants.ChunkSize)
-            {
-                throw new CryptographicException($"Invalid encrypted file format: invalid ciphertext length {ciphertextLength}");
-            }
-            
-            // Read chunk ciphertext - read exactly the specified length
-            var ciphertext = new byte[ciphertextLength];
-            var ciphertextRead = ReadExactly(encryptedStream, ciphertext, 0, ciphertextLength);
-            if (ciphertextRead != ciphertextLength)
-            {
-                throw new CryptographicException($"Invalid encrypted file format: truncated ciphertext (expected {ciphertextLength}, got {ciphertextRead})");
-            }
-            
-            // Decrypt chunk
-            var plaintext = new byte[ciphertextLength];
-            aesGcm.Decrypt(chunkIv, ciphertext, tag, plaintext);
-            
-            // Write decrypted chunk
-            result.Write(plaintext, 0, plaintext.Length);
-            
-            chunkCounter++;
-        }
-        
-        result.Position = 0;
-        return result;
-    }
-    
-    /// <summary>
-    /// Reads exactly the requested number of bytes from the stream.
-    /// This is necessary because Stream.Read doesn't guarantee filling the buffer.
-    /// </summary>
-    private int ReadExactly(Stream stream, byte[] buffer, int offset, int count)
-    {
-        int totalRead = 0;
-        while (totalRead < count)
-        {
-            int bytesRead = stream.Read(buffer, offset + totalRead, count - totalRead);
-            if (bytesRead == 0)
-            {
-                // End of stream reached before reading requested amount
-                return totalRead;
-            }
-            totalRead += bytesRead;
-        }
-        return totalRead;
     }
 
     private static string FormatBytes(long bytes)
