@@ -1,9 +1,10 @@
+using System.Data;
 using System.Security.Cryptography;
 using lockhaven_backend.Constants;
 using lockhaven_backend.Data;
 using lockhaven_backend.Models;
 using lockhaven_backend.Services.Interfaces;
-using Microsoft.AspNetCore.Http;
+using lockhaven_backend.Services.Streaming;
 using Microsoft.EntityFrameworkCore;
 using File = lockhaven_backend.Models.File;
 
@@ -28,9 +29,9 @@ public class FileService : IFileService
         _fileValidationService = fileValidationService;
     }
 
-    public async Task<File> UploadFile(IFormFile file, string userId)
+    public async Task<File> UploadFile(IFormFile file, Guid userId, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(userId))
+        if (Guid.Empty == userId)
         {
             throw new ArgumentNullException(nameof(userId));
         }
@@ -65,26 +66,55 @@ public class FileService : IFileService
             // Generate per-file data encryption key (DEK) and IV
             var key = GenerateEncryptionKey();
             var iv = GenerateInitializationVector();
-            
-            // Encrypt the DEK and IV with the Key Encryption Key (KEK) from Azure Key Vault
-            fileEntity.EncryptedKey = await _keyEncryptionService.EncryptKeyAsync(key);
-            fileEntity.InitializationVector = await _keyEncryptionService.EncryptIvAsync(iv);
-            
-            // Encrypt the file stream with the DEK using chunked format
-            uploadStream = EncryptStreamChunked(fileStream, key, iv);
+
+            // Encrypt the DEK and IV with the KEK (e.g. Vault Transit)
+            fileEntity.EncryptedKey = await _keyEncryptionService.EncryptKeyAsync(key, cancellationToken);
+            fileEntity.InitializationVector = await _keyEncryptionService.EncryptIvAsync(iv, cancellationToken);
+
+            // Encrypt on read while uploading — does not buffer the whole ciphertext in RAM
+            uploadStream = new ChunkedAesGcmEncryptingStream(fileStream, key, iv, leavePlaintextOpen: true);
         }
         else
         {
             // Client-side encryption (future approach)
-            // File is already encrypted, just store it
             fileEntity.EncryptedKey = string.Empty;
             fileEntity.InitializationVector = string.Empty;
         }
 
+        // Serializable transaction serializes quota checks + inserts so concurrent uploads cannot bypass limits.
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(IsolationLevel.Serializable);
         try
         {
-            // Store in blob storage
-            await _blobStorageService.UploadAsync(uploadStream, blobPath, contentType);
+            var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Id == userId)
+                ?? throw new UnauthorizedAccessException("User not found");
+
+            await RefreshUserUsageMetrics(user);
+            EnforceTierLimits(user, fileSize);
+
+            _dbContext.Files.Add(fileEntity);
+
+            user.CurrentStorageUsedBytes += fileSize;
+            user.UploadsTodayCount += 1;
+            user.UploadsCountDateUtc = DateTime.UtcNow.Date;
+            user.UpdatedAt = DateTime.UtcNow;
+
+            await _dbContext.SaveChangesAsync();
+            await transaction.CommitAsync();
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+
+        try
+        {
+            await _blobStorageService.UploadAsync(uploadStream, blobPath, contentType, cancellationToken: cancellationToken);
+        }
+        catch
+        {
+            await CompensateFailedBlobUploadAsync(fileEntity.Id, userId);
+            throw;
         }
         finally
         {
@@ -93,35 +123,61 @@ public class FileService : IFileService
                 uploadStream.Dispose();
             }
         }
-        
-        // Save to database
-        _dbContext.Files.Add(fileEntity);
-        await _dbContext.SaveChangesAsync();
-        
+
         return fileEntity;
     }
 
-    public async Task<Stream> DownloadFile(string fileId, string userId)
+    private async Task CompensateFailedBlobUploadAsync(Guid fileId, Guid userId)
     {
-        if (string.IsNullOrEmpty(fileId) || string.IsNullOrEmpty(userId))
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+        try
         {
-            throw new ArgumentNullException("fileId and userId cannot be null or empty");
+            var fileEntity = await _dbContext.Files
+                .FirstOrDefaultAsync(f => f.Id == fileId && f.UserId == userId);
+
+            if (fileEntity == null)
+            {
+                await transaction.CommitAsync();
+                return;
+            }
+
+            _dbContext.Files.Remove(fileEntity);
+
+            var user = await _dbContext.Users.FirstAsync(u => u.Id == userId);
+            await RefreshUserUsageMetrics(user);
+            user.UpdatedAt = DateTime.UtcNow;
+
+            await _dbContext.SaveChangesAsync();
+            await transaction.CommitAsync();
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+    }
+
+    public async Task<Stream> DownloadFile(Guid fileId, Guid userId, CancellationToken cancellationToken = default)
+    {
+        if (fileId == Guid.Empty || userId == Guid.Empty)
+        {
+            throw new ArgumentNullException("fileId and userId cannot be empty");
         }
 
         // Get file metadata and verify ownership
         var file = await GetFileById(fileId, userId) ?? throw new FileNotFoundException($"File with id {fileId} not found or access denied");
 
         // Download from blob storage
-        var encryptedStream = await _blobStorageService.DownloadAsync(file.BlobPath);
+        var encryptedStream = await _blobStorageService.DownloadAsync(file.BlobPath, cancellationToken);
 
         if (!file.IsClientEncrypted)
         {
-            // Server-side encryption - decrypt the DEK and IV using the KEK from Azure Key Vault
-            var key = await _keyEncryptionService.DecryptKeyAsync(file.EncryptedKey);
-            var iv = await _keyEncryptionService.DecryptIvAsync(file.InitializationVector);
+            // Server-side encryption - decrypt the DEK and IV using the KEK (e.g. Vault Transit)
+            var key = await _keyEncryptionService.DecryptKeyAsync(file.EncryptedKey, cancellationToken);
+            var iv = await _keyEncryptionService.DecryptIvAsync(file.InitializationVector, cancellationToken);
             
-            // Decrypt the file stream with the decrypted DEK
-            return DecryptStreamChunked(encryptedStream, key, iv);
+            // Decrypt on read — does not buffer the whole plaintext in RAM
+            return new ChunkedAesGcmDecryptingStream(encryptedStream, key, iv, leaveCiphertextOpen: false);
         }
         else
         {
@@ -130,11 +186,11 @@ public class FileService : IFileService
         }
     }
 
-    public async Task<File?> GetFileById(string fileId, string userId)
+    public async Task<File?> GetFileById(Guid fileId, Guid userId)
     {
-        if (string.IsNullOrEmpty(fileId) || string.IsNullOrEmpty(userId)) 
+        if (fileId == Guid.Empty || userId == Guid.Empty) 
         {
-            throw new ArgumentNullException($"{nameof(fileId)} and {nameof(userId)} cannot be null or empty");
+            throw new ArgumentNullException($"{nameof(fileId)} and {nameof(userId)} cannot be empty");
         }
 
         var file = await _dbContext.Files
@@ -143,21 +199,21 @@ public class FileService : IFileService
         return file;
     }
 
-    public async Task<ICollection<File>> GetUserFiles(string userId)
+    public async Task<ICollection<File>> GetUserFiles(Guid userId)
     {
-        if (string.IsNullOrEmpty(userId)) 
+        if (userId == Guid.Empty) 
         {
-            throw new ArgumentNullException($"{nameof(userId)} cannot be null or empty");
+            throw new ArgumentNullException($"{nameof(userId)} cannot be empty");
         }
 
         return await _dbContext.Files.Where(f => f.UserId == userId).ToListAsync();
     }
 
-    public async Task<bool> DeleteFile(string fileId, string userId)
+    public async Task<bool> DeleteFile(Guid fileId, Guid userId)
     {
-        if (string.IsNullOrEmpty(fileId) || string.IsNullOrEmpty(userId))
+        if (fileId == Guid.Empty || userId == Guid.Empty)
         {
-            throw new ArgumentNullException($"{nameof(fileId)} and {nameof(userId)} cannot be null or empty");
+            throw new ArgumentNullException($"{nameof(fileId)} and {nameof(userId)} cannot be empty");
         }
 
         var file = await _dbContext.Files
@@ -166,17 +222,24 @@ public class FileService : IFileService
 
         await _blobStorageService.DeleteAsync(file.BlobPath);
 
+        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Id == userId)
+            ?? throw new UnauthorizedAccessException("User not found");
+
+        await RefreshUserUsageMetrics(user);
+        user.CurrentStorageUsedBytes = Math.Max(0, user.CurrentStorageUsedBytes - file.Size);
+        user.UpdatedAt = DateTime.UtcNow;
+
         _dbContext.Files.Remove(file);
         await _dbContext.SaveChangesAsync();
 
         return true;
     }
 
-    public async Task<long> GetUserStorageUsed(string userId)
+    public async Task<long> GetUserStorageUsed(Guid userId)
     {
-        if (string.IsNullOrEmpty(userId))
+        if (userId == Guid.Empty)
         {
-            throw new ArgumentNullException($"{nameof(userId)} cannot be null or empty");
+            throw new ArgumentNullException($"{nameof(userId)} cannot be empty");
         }
 
         return await _dbContext.Files
@@ -184,11 +247,11 @@ public class FileService : IFileService
             .SumAsync(f => f.Size);
     }
 
-    private async Task<bool> UserOwnsFile(string fileId, string userId)
+    private async Task<bool> UserOwnsFile(Guid fileId, Guid userId)
     {
-        if (string.IsNullOrEmpty(fileId) || string.IsNullOrEmpty(userId)) 
+        if (fileId == Guid.Empty || userId == Guid.Empty) 
         {
-            throw new ArgumentNullException($"{nameof(fileId)} and {nameof(userId)} cannot be null or empty");
+            throw new ArgumentNullException($"{nameof(fileId)} and {nameof(userId)} cannot be empty");
         }
 
         return await _dbContext.Files
@@ -241,131 +304,56 @@ public class FileService : IFileService
         };
     }
 
-    /// <summary>
-    /// Encrypts a stream using chunked AES-256-GCM (Format V2)
-    /// Format: [Chunk1: [ChunkIV(12)][Tag(16)][CiphertextLength(4)][Ciphertext(N)]][Chunk2:...]
-    /// Base IV is stored in database, each chunk gets unique IV derived from base IV + counter
-    /// </summary>
-    private Stream EncryptStreamChunked(Stream inputStream, byte[] key, byte[] baseIv)
+    private static string FormatBytes(long bytes)
     {
-        using var aesGcm = new AesGcm(key, EncryptionConstants.TagSize);
-        
-        var result = new MemoryStream();
-        var buffer = new byte[EncryptionConstants.ChunkSize];
-        var chunkIv = new byte[EncryptionConstants.NonceSize];
-        var chunkCounter = 0;
-        
-        int bytesRead;
-        while ((bytesRead = inputStream.Read(buffer, 0, buffer.Length)) > 0)
-        {
-            // Derive unique IV for this chunk: base IV with counter appended to last 4 bytes
-            baseIv.CopyTo(chunkIv, 0);
-            var counterBytes = BitConverter.GetBytes(chunkCounter++);
-            Array.Copy(counterBytes, 0, chunkIv, EncryptionConstants.NonceSize - 4, 4);
-            
-            // Encrypt chunk
-            var ciphertext = new byte[bytesRead];
-            var tag = new byte[EncryptionConstants.TagSize];
-            aesGcm.Encrypt(chunkIv, buffer.AsSpan(0, bytesRead), ciphertext, tag);
-            
-            // Write chunk IV, tag, ciphertext length, and ciphertext
-            result.Write(chunkIv, 0, chunkIv.Length);
-            result.Write(tag, 0, tag.Length);
-            var lengthBytes = BitConverter.GetBytes(ciphertext.Length);
-            result.Write(lengthBytes, 0, lengthBytes.Length);
-            result.Write(ciphertext, 0, ciphertext.Length);
-        }
-        
-        result.Position = 0;
-        return result;
+        const long kb = 1024;
+        const long mb = kb * 1024;
+        const long gb = mb * 1024;
+
+        if (bytes >= gb) return $"{bytes / (double)gb:0.##} GB";
+        if (bytes >= mb) return $"{bytes / (double)mb:0.##} MB";
+        if (bytes >= kb) return $"{bytes / (double)kb:0.##} KB";
+        return $"{bytes} bytes";
     }
 
-    /// <summary>
-    /// Decrypts a chunked AES-256-GCM stream (Format V2)
-    /// Format: [Chunk1: [ChunkIV(12)][Tag(16)][CiphertextLength(4)][Ciphertext(N)]][Chunk2:...]
-    /// </summary>
-    private Stream DecryptStreamChunked(Stream encryptedStream, byte[] key, byte[] baseIv)
+    private void EnforceTierLimits(User user, long incomingFileSize)
     {
-        using var aesGcm = new AesGcm(key, EncryptionConstants.TagSize);
-        
-        var result = new MemoryStream();
-        var chunkIv = new byte[EncryptionConstants.NonceSize];
-        var tag = new byte[EncryptionConstants.TagSize];
-        var lengthBytes = new byte[sizeof(int)];
-        var chunkCounter = 0;
-        
-        while (true)
+        var limits = SubscriptionLimits.ForTier(user.SubscriptionTier);
+
+        if (incomingFileSize > limits.MaxFileSizeBytes)
         {
-            // Read chunk IV - if we can't read a full IV, we've reached the end
-            var ivRead = ReadExactly(encryptedStream, chunkIv, 0, chunkIv.Length);
-            if (ivRead == 0)
-            {
-                break; // End of stream
-            }
-            if (ivRead != chunkIv.Length)
-            {
-                throw new CryptographicException("Invalid encrypted file format: truncated chunk IV");
-            }
-            
-            // Read chunk tag
-            var tagRead = ReadExactly(encryptedStream, tag, 0, tag.Length);
-            if (tagRead != tag.Length)
-            {
-                throw new CryptographicException("Invalid encrypted file format: truncated chunk tag");
-            }
-            
-            // Read ciphertext length
-            var lengthRead = ReadExactly(encryptedStream, lengthBytes, 0, lengthBytes.Length);
-            if (lengthRead != lengthBytes.Length)
-            {
-                throw new CryptographicException("Invalid encrypted file format: truncated ciphertext length");
-            }
-            
-            var ciphertextLength = BitConverter.ToInt32(lengthBytes, 0);
-            if (ciphertextLength < 0 || ciphertextLength > EncryptionConstants.ChunkSize)
-            {
-                throw new CryptographicException($"Invalid encrypted file format: invalid ciphertext length {ciphertextLength}");
-            }
-            
-            // Read chunk ciphertext - read exactly the specified length
-            var ciphertext = new byte[ciphertextLength];
-            var ciphertextRead = ReadExactly(encryptedStream, ciphertext, 0, ciphertextLength);
-            if (ciphertextRead != ciphertextLength)
-            {
-                throw new CryptographicException($"Invalid encrypted file format: truncated ciphertext (expected {ciphertextLength}, got {ciphertextRead})");
-            }
-            
-            // Decrypt chunk
-            var plaintext = new byte[ciphertextLength];
-            aesGcm.Decrypt(chunkIv, ciphertext, tag, plaintext);
-            
-            // Write decrypted chunk
-            result.Write(plaintext, 0, plaintext.Length);
-            
-            chunkCounter++;
+            throw new BadHttpRequestException(
+                $"This file exceeds your {user.SubscriptionTier} tier max file size of {FormatBytes(limits.MaxFileSizeBytes)}.");
         }
-        
-        result.Position = 0;
-        return result;
+
+        if (user.CurrentStorageUsedBytes + incomingFileSize > limits.MaxTotalStorageBytes)
+        {
+            throw new BadHttpRequestException(
+                $"This upload would exceed your {user.SubscriptionTier} tier storage limit of {FormatBytes(limits.MaxTotalStorageBytes)}.");
+        }
+
+        if (limits.MaxUploadsPerDay.HasValue && user.UploadsTodayCount >= limits.MaxUploadsPerDay.Value)
+        {
+            throw new BadHttpRequestException(
+                $"You have reached your {user.SubscriptionTier} tier daily upload limit ({limits.MaxUploadsPerDay.Value}/day).");
+        }
     }
-    
-    /// <summary>
-    /// Reads exactly the requested number of bytes from the stream.
-    /// This is necessary because Stream.Read doesn't guarantee filling the buffer.
-    /// </summary>
-    private int ReadExactly(Stream stream, byte[] buffer, int offset, int count)
+
+    private async Task RefreshUserUsageMetrics(User user)
     {
-        int totalRead = 0;
-        while (totalRead < count)
-        {
-            int bytesRead = stream.Read(buffer, offset + totalRead, count - totalRead);
-            if (bytesRead == 0)
-            {
-                // End of stream reached before reading requested amount
-                return totalRead;
-            }
-            totalRead += bytesRead;
-        }
-        return totalRead;
+        user.CurrentStorageUsedBytes = await _dbContext.Files
+            .Where(f => f.UserId == user.Id)
+            .SumAsync(f => (long?)f.Size) ?? 0;
+
+        var startOfTodayUtc = DateTime.UtcNow.Date;
+        var endOfTodayUtc = startOfTodayUtc.AddDays(1);
+
+        user.UploadsTodayCount = await _dbContext.Files
+            .CountAsync(f =>
+                f.UserId == user.Id &&
+                f.UploadedAt >= startOfTodayUtc &&
+                f.UploadedAt < endOfTodayUtc);
+
+        user.UploadsCountDateUtc = startOfTodayUtc;
     }
 }   

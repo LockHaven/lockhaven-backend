@@ -6,7 +6,7 @@ namespace lockhaven_backend.Models;
 public class File
 {
     [Key]
-    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public Guid Id { get; set; } = Guid.NewGuid();
 
     [Required]
     [StringLength(255)]
@@ -45,7 +45,7 @@ public class File
     public string BlobPath { get; set; } = string.Empty;
 
     [Required]
-    public string UserId { get; set; } = string.Empty;
+    public Guid UserId { get; set; }
 
     [ForeignKey("UserId")]
     public virtual User? User { get; set; }

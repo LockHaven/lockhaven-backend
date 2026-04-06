@@ -19,24 +19,29 @@ public class VaultTransitKeyEncryptionService : IKeyEncryptionService
             ?? throw new InvalidOperationException("Vault:Address is not configured");
         _transitKeyName = configuration["Vault:TransitKeyName"]
             ?? throw new InvalidOperationException("Vault:TransitKeyName is not configured");
-        _vaultToken = configuration["Vault:Token"]
-            ?? Environment.GetEnvironmentVariable("VAULT_TOKEN")
-            ?? throw new InvalidOperationException("Vault token is not configured. Set Vault:Token or VAULT_TOKEN.");
+
+        var configuredToken = configuration["Vault:Token"];
+        var envToken = Environment.GetEnvironmentVariable("VAULT_TOKEN");
+        _vaultToken = !string.IsNullOrWhiteSpace(configuredToken)
+            ? configuredToken
+            : !string.IsNullOrWhiteSpace(envToken)
+                ? envToken
+                : throw new InvalidOperationException("Vault token is not configured. Set Vault:Token or VAULT_TOKEN.");
     }
 
-    public async Task<string> EncryptKeyAsync(byte[] plaintextKey)
-        => await EncryptAsync(plaintextKey, nameof(plaintextKey));
+    public Task<string> EncryptKeyAsync(byte[] plaintextKey, CancellationToken cancellationToken = default)
+        => EncryptAsync(plaintextKey, nameof(plaintextKey), cancellationToken);
 
-    public async Task<string> EncryptIvAsync(byte[] plaintextIv)
-        => await EncryptAsync(plaintextIv, nameof(plaintextIv));
+    public Task<string> EncryptIvAsync(byte[] plaintextIv, CancellationToken cancellationToken = default)
+        => EncryptAsync(plaintextIv, nameof(plaintextIv), cancellationToken);
 
-    public async Task<byte[]> DecryptKeyAsync(string encryptedKeyBase64)
-        => await DecryptAsync(encryptedKeyBase64, nameof(encryptedKeyBase64));
+    public Task<byte[]> DecryptKeyAsync(string encryptedKeyBase64, CancellationToken cancellationToken = default)
+        => DecryptAsync(encryptedKeyBase64, nameof(encryptedKeyBase64), cancellationToken);
 
-    public async Task<byte[]> DecryptIvAsync(string encryptedIvBase64)
-        => await DecryptAsync(encryptedIvBase64, nameof(encryptedIvBase64));
+    public Task<byte[]> DecryptIvAsync(string encryptedIvBase64, CancellationToken cancellationToken = default)
+        => DecryptAsync(encryptedIvBase64, nameof(encryptedIvBase64), cancellationToken);
 
-    private async Task<string> EncryptAsync(byte[] plaintext, string paramName)
+    private async Task<string> EncryptAsync(byte[] plaintext, string paramName, CancellationToken cancellationToken)
     {
         if (plaintext == null || plaintext.Length == 0)
         {
@@ -55,8 +60,9 @@ public class VaultTransitKeyEncryptionService : IKeyEncryptionService
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _vaultToken);
         request.Headers.Add("X-Vault-Token", _vaultToken);
 
-        using var response = await _httpClient.SendAsync(request);
-        var responseBody = await response.Content.ReadAsStringAsync();
+        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+            .ConfigureAwait(false);
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             throw new InvalidOperationException($"Vault transit encrypt failed ({(int)response.StatusCode}): {responseBody}");
@@ -76,7 +82,7 @@ public class VaultTransitKeyEncryptionService : IKeyEncryptionService
         return ciphertext;
     }
 
-    private async Task<byte[]> DecryptAsync(string ciphertext, string paramName)
+    private async Task<byte[]> DecryptAsync(string ciphertext, string paramName, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(ciphertext))
         {
@@ -94,8 +100,9 @@ public class VaultTransitKeyEncryptionService : IKeyEncryptionService
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _vaultToken);
         request.Headers.Add("X-Vault-Token", _vaultToken);
 
-        using var response = await _httpClient.SendAsync(request);
-        var responseBody = await response.Content.ReadAsStringAsync();
+        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+            .ConfigureAwait(false);
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             throw new InvalidOperationException($"Vault transit decrypt failed ({(int)response.StatusCode}): {responseBody}");

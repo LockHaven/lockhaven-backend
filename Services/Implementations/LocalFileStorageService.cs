@@ -39,21 +39,25 @@ public class LocalFileStorageService : IBlobStorageService
         return blobPath;
     }
 
-    public async Task<Stream> DownloadAsync(string blobPath, CancellationToken cancellationToken = default)
+    public Task<Stream> DownloadAsync(string blobPath, CancellationToken cancellationToken = default)
     {
         var fullPath = Path.Combine(_storagePath, blobPath);
-        
+
         if (!File.Exists(fullPath))
         {
             throw new FileNotFoundException($"File not found: {blobPath}");
         }
 
-        var memoryStream = new MemoryStream();
-        using var fileStream = new FileStream(fullPath, FileMode.Open, FileAccess.Read);
-        await fileStream.CopyToAsync(memoryStream, cancellationToken);
-        memoryStream.Position = 0;
-        
-        return memoryStream;
+        // Caller owns the stream; sequential async reads for CopyToAsync / decrypt pipeline
+        Stream stream = new FileStream(
+            fullPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 1024 * 64,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+
+        return Task.FromResult(stream);
     }
 
     public async Task<bool> DeleteAsync(string blobPath, CancellationToken cancellationToken = default)
