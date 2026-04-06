@@ -42,7 +42,8 @@ public class EnvironmentService : IEnvironmentService
             throw new ArgumentException("Environment slug is required", nameof(request.Slug));
         }
 
-        if (await _dbContext.Environments.AnyAsync(e => e.ProjectId == projectId && e.Slug == slug))
+        if (await _dbContext.Environments.AnyAsync(e =>
+                e.ProjectId == projectId && e.Slug == slug && !e.IsDeleted))
         {
             throw new InvalidOperationException("An environment with this slug already exists for this project");
         }
@@ -68,7 +69,7 @@ public class EnvironmentService : IEnvironmentService
         await GetAuthorizedProject(projectId, userId);
 
         var environments = await _dbContext.Environments
-            .Where(e => e.ProjectId == projectId)
+            .Where(e => e.ProjectId == projectId && !e.IsDeleted)
             .OrderBy(e => e.Name)
             .ToListAsync();
 
@@ -89,7 +90,7 @@ public class EnvironmentService : IEnvironmentService
         }
 
         var environment = await _dbContext.Environments
-            .FirstOrDefaultAsync(e => e.Id == environmentId && e.ProjectId == projectId)
+            .FirstOrDefaultAsync(e => e.Id == environmentId && e.ProjectId == projectId && !e.IsDeleted)
             ?? throw new FileNotFoundException($"Environment with id {environmentId} not found");
 
         var newName = request.Name?.Trim();
@@ -120,7 +121,8 @@ public class EnvironmentService : IEnvironmentService
             var slugTaken = await _dbContext.Environments.AnyAsync(e =>
                 e.ProjectId == projectId &&
                 e.Slug == newSlug! &&
-                e.Id != environmentId);
+                e.Id != environmentId &&
+                !e.IsDeleted);
 
             if (slugTaken)
             {
@@ -145,10 +147,26 @@ public class EnvironmentService : IEnvironmentService
         }
 
         var environment = await _dbContext.Environments
-            .FirstOrDefaultAsync(e => e.Id == environmentId && e.ProjectId == projectId)
+            .FirstOrDefaultAsync(e => e.Id == environmentId && e.ProjectId == projectId && !e.IsDeleted)
             ?? throw new FileNotFoundException($"Environment with id {environmentId} not found");
 
-        _dbContext.Environments.Remove(environment);
+        var now = DateTime.UtcNow;
+
+        var secrets = await _dbContext.Secrets
+            .Where(s => s.EnvironmentId == environmentId && !s.IsDeleted)
+            .ToListAsync();
+
+        foreach (var secret in secrets)
+        {
+            secret.IsDeleted = true;
+            secret.DeletedAtUtc = now;
+            secret.UpdatedAtUtc = now;
+        }
+
+        environment.IsDeleted = true;
+        environment.DeletedAtUtc = now;
+        environment.UpdatedAtUtc = now;
+
         await _dbContext.SaveChangesAsync();
         return true;
     }

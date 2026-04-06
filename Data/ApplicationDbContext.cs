@@ -97,8 +97,12 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.Slug).IsRequired().HasMaxLength(60);
             entity.Property(e => e.CreatedAtUtc).IsRequired();
             entity.Property(e => e.UpdatedAtUtc).IsRequired();
+            entity.Property(e => e.IsDeleted).IsRequired().HasDefaultValue(false);
+            entity.Property(e => e.DeletedAtUtc);
 
-            entity.HasIndex(e => new { e.ProjectId, e.Slug }).IsUnique();
+            entity.HasIndex(e => new { e.ProjectId, e.Slug })
+                .IsUnique()
+                .HasFilter("\"IsDeleted\" = false");
 
             entity.HasOne(e => e.Project)
                   .WithMany(p => p.Environments)
@@ -117,14 +121,18 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.CurrentVersion).IsRequired().HasDefaultValue(1);
             entity.Property(e => e.CreatedAtUtc).IsRequired();
             entity.Property(e => e.UpdatedAtUtc).IsRequired();
+            entity.Property(e => e.IsDeleted).IsRequired().HasDefaultValue(false);
+            entity.Property(e => e.DeletedAtUtc);
 
             entity.HasIndex(e => e.EnvironmentId);
-            entity.HasIndex(e => new { e.EnvironmentId, e.Key }).IsUnique();
+            entity.HasIndex(e => new { e.EnvironmentId, e.Key })
+                .IsUnique()
+                .HasFilter("\"IsDeleted\" = false");
 
             entity.HasOne(e => e.Environment)
                   .WithMany(env => env.Secrets)
                   .HasForeignKey(e => e.EnvironmentId)
-                  .OnDelete(DeleteBehavior.Cascade);
+                  .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<SecretVersion>(entity =>

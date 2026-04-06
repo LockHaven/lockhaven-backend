@@ -34,6 +34,11 @@ public class Secret
     [Required]
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 
+    [Required]
+    public bool IsDeleted { get; set; } = false;
+
+    public DateTime? DeletedAtUtc { get; set; }
+
     public virtual ProjectEnvironment? Environment { get; set; }
     public virtual ICollection<SecretVersion> Versions { get; set; } = new List<SecretVersion>();
     public virtual ICollection<SecretAuditEvent> SecretAuditEvents { get; set; } = new List<SecretAuditEvent>();

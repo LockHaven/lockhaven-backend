@@ -24,6 +24,11 @@ public class ProjectEnvironment
     [Required]
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 
+    [Required]
+    public bool IsDeleted { get; set; } = false;
+
+    public DateTime? DeletedAtUtc { get; set; }
+
     public virtual Project? Project { get; set; }
     public virtual ICollection<Secret> Secrets { get; set; } = new List<Secret>();
     public virtual ICollection<SecretAuditEvent> SecretAuditEvents { get; set; } = new List<SecretAuditEvent>();
