@@ -1,3 +1,4 @@
+using lockhaven_backend.Constants;
 using lockhaven_backend.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -19,6 +20,8 @@ public class FilesController : ControllerBase
     }
 
     [HttpPost("upload")]
+    [RequestSizeLimit(AcceptedFileTypes.MaxUploadSizeBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = AcceptedFileTypes.MaxUploadSizeBytes)]
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> UploadFile(IFormFile file)
     {
