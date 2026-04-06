@@ -67,7 +67,9 @@ public class ApplicationDbContext : DbContext
 
         modelBuilder.Entity<Project>(entity =>
         {
-            entity.ToTable("Projects");
+            entity.ToTable("Projects", t => t.HasCheckConstraint(
+                "CK_Projects_Slug_UrlSafe",
+                @"""Slug"" ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'"));
             entity.HasKey(e => e.Id);
             entity.Property(e => e.OwnerUserId).IsRequired();
             entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
@@ -91,7 +93,9 @@ public class ApplicationDbContext : DbContext
 
         modelBuilder.Entity<ProjectEnvironment>(entity =>
         {
-            entity.ToTable("Environments");
+            entity.ToTable("Environments", t => t.HasCheckConstraint(
+                "CK_Environments_Slug_UrlSafe",
+                @"""Slug"" ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'"));
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Name).IsRequired().HasMaxLength(40);
             entity.Property(e => e.Slug).IsRequired().HasMaxLength(60);

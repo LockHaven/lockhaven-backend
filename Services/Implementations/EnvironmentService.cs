@@ -1,3 +1,4 @@
+using lockhaven_backend.Constants;
 using lockhaven_backend.Data;
 using lockhaven_backend.Models;
 using lockhaven_backend.Models.Requests;
@@ -30,7 +31,7 @@ public class EnvironmentService : IEnvironmentService
         }
 
         var name = request.Name?.Trim();
-        var slug = request.Slug?.Trim().ToLowerInvariant();
+        var slug = SlugConstraints.NormalizeSlug(request.Slug);
 
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -40,6 +41,12 @@ public class EnvironmentService : IEnvironmentService
         if (string.IsNullOrWhiteSpace(slug))
         {
             throw new ArgumentException("Environment slug is required", nameof(request.Slug));
+        }
+
+        if (!SlugConstraints.IsValid(slug))
+        {
+            throw new BadHttpRequestException(
+                $"Environment slug must contain only {SlugConstraints.PatternDescription}.");
         }
 
         if (await _dbContext.Environments.AnyAsync(e =>
@@ -94,7 +101,7 @@ public class EnvironmentService : IEnvironmentService
             ?? throw new FileNotFoundException($"Environment with id {environmentId} not found");
 
         var newName = request.Name?.Trim();
-        var newSlug = request.Slug?.Trim().ToLowerInvariant();
+        var newSlug = SlugConstraints.NormalizeSlug(request.Slug);
         var hasNameUpdate = !string.IsNullOrWhiteSpace(newName);
         var hasSlugUpdate = !string.IsNullOrWhiteSpace(newSlug);
 
@@ -118,6 +125,12 @@ public class EnvironmentService : IEnvironmentService
 
         if (hasActualSlugChange)
         {
+            if (!SlugConstraints.IsValid(newSlug!))
+            {
+                throw new BadHttpRequestException(
+                    $"Environment slug must contain only {SlugConstraints.PatternDescription}.");
+            }
+
             var slugTaken = await _dbContext.Environments.AnyAsync(e =>
                 e.ProjectId == projectId &&
                 e.Slug == newSlug! &&

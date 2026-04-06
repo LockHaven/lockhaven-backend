@@ -1,3 +1,4 @@
+using lockhaven_backend.Constants;
 using lockhaven_backend.Data;
 using lockhaven_backend.Models;
 using lockhaven_backend.Models.Requests;
@@ -29,7 +30,7 @@ public class ProjectService : IProjectService
         }
 
         var name = request.Name?.Trim();
-        var slug = request.Slug?.Trim().ToLowerInvariant();
+        var slug = SlugConstraints.NormalizeSlug(request.Slug);
 
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -39,6 +40,12 @@ public class ProjectService : IProjectService
         if (string.IsNullOrWhiteSpace(slug))
         {
             throw new ArgumentException("Project slug is required", nameof(request.Slug));
+        }
+
+        if (!SlugConstraints.IsValid(slug))
+        {
+            throw new BadHttpRequestException(
+                $"Project slug must contain only {SlugConstraints.PatternDescription}.");
         }
 
         if (await _dbContext.Projects.AnyAsync(p => p.OwnerUserId == userId && p.Slug == slug && !p.IsDeleted))
@@ -126,7 +133,7 @@ public class ProjectService : IProjectService
         }
 
         var newName = request.Name?.Trim();
-        var newSlug = request.Slug?.Trim().ToLowerInvariant();
+        var newSlug = SlugConstraints.NormalizeSlug(request.Slug);
         var hasNameUpdate = !string.IsNullOrWhiteSpace(newName);
         var hasSlugUpdate = !string.IsNullOrWhiteSpace(newSlug);
 
@@ -150,6 +157,12 @@ public class ProjectService : IProjectService
 
         if (hasActualSlugChange)
         {
+            if (!SlugConstraints.IsValid(newSlug!))
+            {
+                throw new BadHttpRequestException(
+                    $"Project slug must contain only {SlugConstraints.PatternDescription}.");
+            }
+
             var slugTaken = await _dbContext.Projects.AnyAsync(p =>
                 p.OwnerUserId == project.OwnerUserId &&
                 p.Slug == newSlug! &&
