@@ -3,9 +3,8 @@ using System.Text;
 using System.Text.Json;
 using lockhaven_backend.Services;
 using Microsoft.Extensions.Configuration;
-using Xunit;
 
-namespace lockhaven_backend.Tests;
+namespace lockhaven_backend.Tests.Unit.Services;
 
 public class VaultTransitKeyEncryptionServiceTests
 {
@@ -26,9 +25,8 @@ public class VaultTransitKeyEncryptionServiceTests
     {
         var service = CreateService(new FailingVaultMessageHandler());
 
-        var act = () => service.EncryptKeyAsync(Encoding.UTF8.GetBytes("abc"));
-
-        await Assert.ThrowsAsync<InvalidOperationException>(act);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.EncryptKeyAsync(Encoding.UTF8.GetBytes("abc")));
     }
 
     private static VaultTransitKeyEncryptionService CreateService(HttpMessageHandler handler)
@@ -68,10 +66,10 @@ public class VaultTransitKeyEncryptionServiceTests
             if (path.Contains("/decrypt/", StringComparison.OrdinalIgnoreCase))
             {
                 var ciphertext = requestJson.RootElement.GetProperty("ciphertext").GetString() ?? string.Empty;
-                var plaintext = ciphertext.Replace("vault:v1:", string.Empty, StringComparison.Ordinal);
+                var plain = ciphertext.Replace("vault:v1:", string.Empty, StringComparison.Ordinal);
                 var responseBody = JsonSerializer.Serialize(new
                 {
-                    data = new { plaintext }
+                    data = new { plaintext = plain }
                 });
                 return BuildJsonResponse(HttpStatusCode.OK, responseBody);
             }
