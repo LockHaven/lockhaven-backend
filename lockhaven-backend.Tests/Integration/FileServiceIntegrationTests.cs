@@ -1,19 +1,19 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
-using lockhaven_backend.Data;
 using lockhaven_backend.Models;
 using lockhaven_backend.Services;
+using lockhaven_backend.Tests.TestInfrastructure;
 using Microsoft.AspNetCore.Http;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
-using Xunit;
 
-namespace lockhaven_backend.Tests;
+namespace lockhaven_backend.Tests.Integration;
 
-public class FileServiceSmokeTests
+/// <summary>
+/// End-to-end style test: EF InMemory, local disk storage, and Vault transit stub.
+/// </summary>
+public class FileServiceIntegrationTests
 {
     [Fact]
     public async Task UploadAndDownload_WithLocalStorageAndVaultTransit_RoundTripsContent()
@@ -24,7 +24,7 @@ public class FileServiceSmokeTests
             Directory.Delete(storageRoot, true);
         }
 
-        await using var dbContext = CreateDbContext();
+        await using var dbContext = InMemoryDbContextFactory.Create();
         var validationService = new FileValidationService(BuildValidationConfiguration());
         var localStorage = new LocalFileStorageService(BuildValidationConfiguration(), NullLogger<LocalFileStorageService>.Instance);
         var vaultService = new VaultTransitKeyEncryptionService(
@@ -47,7 +47,7 @@ public class FileServiceSmokeTests
         await dbContext.SaveChangesAsync();
 
         const string sourceContent = "lockhaven smoke test content";
-        var uploadFile = CreateFormFile("smoke-test.txt", "text/plain", sourceContent);
+        var uploadFile = TestFormFile.Create("smoke-test.txt", "text/plain", sourceContent);
 
         var saved = await fileService.UploadFile(uploadFile, userId);
         await using var downloaded = await fileService.DownloadFile(saved.Id, userId);
@@ -55,16 +55,6 @@ public class FileServiceSmokeTests
         var downloadedContent = await reader.ReadToEndAsync();
 
         Assert.Equal(sourceContent, downloadedContent);
-    }
-
-    private static ApplicationDbContext CreateDbContext()
-    {
-        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
-            .Options;
-
-        return new ApplicationDbContext(options);
     }
 
     private static IConfiguration BuildValidationConfiguration() =>
@@ -84,17 +74,6 @@ public class FileServiceSmokeTests
                 ["Vault:Token"] = "test-token"
             })
             .Build();
-
-    private static IFormFile CreateFormFile(string fileName, string contentType, string content)
-    {
-        var bytes = Encoding.UTF8.GetBytes(content);
-        var stream = new MemoryStream(bytes);
-        return new FormFile(stream, 0, bytes.Length, "file", fileName)
-        {
-            Headers = new HeaderDictionary(),
-            ContentType = contentType
-        };
-    }
 
     private sealed class VaultStubMessageHandler : HttpMessageHandler
     {
