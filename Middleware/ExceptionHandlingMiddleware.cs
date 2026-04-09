@@ -1,3 +1,4 @@
+using lockhaven_backend.Exceptions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Net;
@@ -59,6 +60,13 @@ public class ExceptionHandlingMiddleware
                 problem.Title = "Unauthorized";
                 problem.Detail = ex.Message;
                 problem.Type = "https://tools.ietf.org/html/rfc7235#section-3.1"; // 401
+                break;
+
+            case ForbiddenException:
+                problem.Status = (int)HttpStatusCode.Forbidden;
+                problem.Title = "Forbidden";
+                problem.Detail = ex.Message;
+                problem.Type = "https://tools.ietf.org/html/rfc7231#section-6.5.3"; // 403
                 break;
 
             case FileNotFoundException:

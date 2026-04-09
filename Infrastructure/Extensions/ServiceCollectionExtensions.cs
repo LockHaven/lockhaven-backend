@@ -156,6 +156,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IFileService, FileService>();
         services.AddScoped<IProjectService, ProjectService>();
         services.AddScoped<IEnvironmentService, EnvironmentService>();
+        services.AddScoped<ISecretService, SecretService>();
         services.AddScoped<IFileValidationService, FileValidationService>();
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUserService, CurrentUserService>();
